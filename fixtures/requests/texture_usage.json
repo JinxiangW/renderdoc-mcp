@@ -1,0 +1,6 @@
+{
+  "method": "inspect_texture_usage",
+  "params": {
+    "limit": 10
+  }
+}

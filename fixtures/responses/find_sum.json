@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "mode": "summary",
+  "data": {
+    "count": 2,
+    "items": [
+      {
+        "eid": 4211,
+        "name": "BasePass",
+        "type": "Draw",
+        "marker": "Opaque"
+      },
+      {
+        "eid": 4227,
+        "name": "BasePass",
+        "type": "Draw",
+        "marker": "Opaque"
+      }
+    ]
+  },
+  "err": null,
+  "meta": {
+    "cap": "active",
+    "truncated": false,
+    "count": 2
+  }
+}

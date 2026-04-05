@@ -1,0 +1,6 @@
+{
+  "method": "find_events",
+  "params": {
+    "limit": 10
+  }
+}

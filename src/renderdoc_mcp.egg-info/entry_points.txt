@@ -1,0 +1,2 @@
+[console_scripts]
+renderdoc-mcp = renderdoc_mcp.server.runtime:main

@@ -1,0 +1,7 @@
+{
+  "method": "list_captures",
+  "params": {
+    "root": "C:\\Caps",
+    "limit": 3
+  }
+}

@@ -1,0 +1,92 @@
+# Tool Map
+
+Use this file to choose the minimum observe-tool set for each analysis task.
+
+## `analyze-pass`
+
+Start with:
+
+- `list_passes`
+- `get_pass_packet`
+
+Add when needed:
+
+- `get_draw_packet` for a representative event
+- `inspect_pipeline_state`
+- `inspect_shader`
+- `inspect_texture_usage` for important outputs
+
+Good stopping point:
+
+- you can name the pass
+- you can cite its dominant event type
+- you can cite its output pattern or shader stage pattern
+
+## `trace-resource-flow`
+
+Start with:
+
+- `inspect_texture_usage`
+
+Add when needed:
+
+- `get_pass_packet` for producer or consumer context
+- `get_draw_packet` when a single event matters more than the pass summary
+
+Good stopping point:
+
+- you can identify producer and first consumer
+- you can distinguish downstream major consumers from incidental reads
+
+## `analyze-material-usage`
+
+Start with:
+
+- `get_draw_packet`
+- `inspect_shader`
+
+Add when needed:
+
+- `inspect_texture_usage`
+- `inspect_mesh`
+
+Good stopping point:
+
+- you can name the dominant stage and entry point
+- you can cite the important binding counts or key sampled resources
+
+## `build-frame-report`
+
+Start with:
+
+- `get_frame_packet`
+
+Add when needed:
+
+- `get_pass_packet` for important passes
+- `inspect_pipeline_state`
+- `inspect_shader`
+- `inspect_texture_usage`
+
+Good stopping point:
+
+- you can identify the frame backbone
+- you can justify why each discussed pass matters
+
+## `reverse-render-pipeline`
+
+Start with:
+
+- `list_passes`
+- `get_frame_packet`
+
+Add when needed:
+
+- `get_pass_packet`
+- `inspect_pipeline_state`
+- `inspect_shader`
+
+Good stopping point:
+
+- you can propose a likely stage ordering
+- you can cite at least one factual signal for each major stage label

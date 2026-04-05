@@ -1,0 +1,6 @@
+{
+  "method": "inspect_pipeline_state",
+  "params": {
+    "eid": 21113
+  }
+}

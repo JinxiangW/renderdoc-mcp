@@ -1,0 +1,6 @@
+{
+  "method": "get_draw_packet",
+  "params": {
+    "eid": 21115
+  }
+}

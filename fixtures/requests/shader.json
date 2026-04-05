@@ -1,0 +1,7 @@
+{
+  "method": "inspect_shader",
+  "params": {
+    "eid": 21113,
+    "stage": "ps"
+  }
+}

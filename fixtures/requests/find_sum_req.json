@@ -1,0 +1,11 @@
+{
+  "method": "find_events",
+  "params": {
+    "q": "BasePass",
+    "marker": "Opaque",
+    "eid_min": 4000,
+    "eid_max": 5000,
+    "limit": 25,
+    "mode": "summary"
+  }
+}

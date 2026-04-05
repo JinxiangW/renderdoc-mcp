@@ -1,0 +1,9 @@
+{
+  "method": "get_shader_disasm",
+  "params": {
+    "eid": 21113,
+    "stage": "ps",
+    "offset": 0,
+    "max_lines": 120
+  }
+}
