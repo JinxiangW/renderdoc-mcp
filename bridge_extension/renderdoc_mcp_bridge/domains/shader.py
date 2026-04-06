@@ -6,6 +6,134 @@ from .pipeline import ShaderSupportMixin
 
 
 class ShaderServiceMixin(ShaderSupportMixin):
+    def _binding_name_map(self, items):
+        mapping = {}
+        try:
+            for item in items or []:
+                slot = getattr(item, "fixedBindNumber", None)
+                if slot is None:
+                    slot = getattr(item, "bindPoint", None)
+                if slot is None:
+                    continue
+                mapping[int(slot)] = getattr(item, "name", "") or ""
+        except Exception as exc:
+            self._warn_swallow("shader.binding_name_map", exc)
+        return mapping
+
+    @staticmethod
+    def _binding_slot(item):
+        try:
+            access = getattr(item, "access", None)
+            if access is not None and getattr(access, "index", None) is not None:
+                return int(access.index)
+        except Exception:
+            pass
+        try:
+            return int(getattr(item, "fixedBindNumber", -1))
+        except Exception:
+            return -1
+
+    @staticmethod
+    def _binding_resource_id(item):
+        try:
+            desc = getattr(item, "descriptor", None)
+            if desc is not None:
+                rid = getattr(desc, "resource", None)
+                rid_str = str(rid)
+                if rid_str and "Null" not in rid_str and rid_str != "ResourceId::0":
+                    return rid
+        except Exception:
+            pass
+        return None
+
+    def _binding_resource_info(self, rid):
+        if rid is None:
+            return None
+        rid_str = str(rid)
+        return {
+            "rid": rid_str,
+            "name": self.ctx.GetResourceName(rid),
+            "meta": self._resource_meta(rid),
+        }
+
+    def _collect_shader_bindings(self, pipe, stage_enum, refl):
+        bindings = {
+            "srv": [],
+            "uav": [],
+            "cbv": [],
+            "smp": [],
+        }
+
+        srv_names = self._binding_name_map(getattr(refl, "readOnlyResources", None))
+        uav_names = self._binding_name_map(getattr(refl, "readWriteResources", None))
+        cbv_names = self._binding_name_map(getattr(refl, "constantBlocks", None))
+        smp_names = self._binding_name_map(getattr(refl, "samplers", None))
+
+        try:
+            for srv in pipe.GetReadOnlyResources(stage_enum, False):
+                slot = self._binding_slot(srv)
+                rid = self._binding_resource_id(srv)
+                info = {
+                    "slot": slot,
+                    "name": srv_names.get(slot, ""),
+                }
+                resource_info = self._binding_resource_info(rid)
+                if resource_info is not None:
+                    info.update(resource_info)
+                bindings["srv"].append(info)
+        except Exception as exc:
+            self._warn_swallow("shader.collect_bindings.srv", exc)
+
+        try:
+            for uav in pipe.GetReadWriteResources(stage_enum, False):
+                slot = self._binding_slot(uav)
+                rid = self._binding_resource_id(uav)
+                info = {
+                    "slot": slot,
+                    "name": uav_names.get(slot, ""),
+                }
+                resource_info = self._binding_resource_info(rid)
+                if resource_info is not None:
+                    info.update(resource_info)
+                bindings["uav"].append(info)
+        except Exception as exc:
+            self._warn_swallow("shader.collect_bindings.uav", exc)
+
+        try:
+            for cbv in pipe.GetConstantBlocks(stage_enum, False):
+                slot = self._binding_slot(cbv)
+                rid = self._binding_resource_id(cbv)
+                info = {
+                    "slot": slot,
+                    "name": cbv_names.get(slot, ""),
+                }
+                resource_info = self._binding_resource_info(rid)
+                if resource_info is not None:
+                    info.update(resource_info)
+                bindings["cbv"].append(info)
+        except Exception as exc:
+            self._warn_swallow("shader.collect_bindings.cbv", exc)
+
+        try:
+            for smp in pipe.GetSamplers(stage_enum, False):
+                slot = self._binding_slot(smp)
+                bindings["smp"].append(
+                    {
+                        "slot": slot,
+                        "name": smp_names.get(slot, ""),
+                    }
+                )
+        except Exception as exc:
+            self._warn_swallow("shader.collect_bindings.smp", exc)
+
+        for key in bindings:
+            try:
+                bindings[key].sort(key=lambda item: int(item.get("slot", -1)))
+            except Exception:
+                pass
+
+        return bindings
+
     def inspect_shader(self, params):
         if not self.ctx.IsCaptureLoaded():
             return self._no_capture()
@@ -81,6 +209,7 @@ class ShaderServiceMixin(ShaderSupportMixin):
                         "entry": entry,
                     },
                     "bind": bind,
+                    "bindings": self._collect_shader_bindings(pipe, stage_enum, refl),
                     "cbufs": cbufs,
                     "code": self._shader_snippet(controller, pipe, stage_enum, refl),
                 },

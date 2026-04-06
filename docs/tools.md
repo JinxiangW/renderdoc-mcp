@@ -123,6 +123,7 @@ Purpose:
 
 - compact per-event pipeline snapshot
 - avoid full binding dumps by default
+- keep the payload API-agnostic at the top level
 
 Input:
 
@@ -147,6 +148,11 @@ Summary output:
   "res": {"srv": 12, "uav": 1, "cbv": 8, "smp": 6, "rt": 4, "ds": 1}
 }
 ```
+
+Notes:
+
+- fixed-function `blend` / `depth` / `rast` details are not part of `inspect_pipeline_state`
+- those details may appear in draw packets and are currently sourced from D3D11-specific state extraction
 
 ## 6. `inspect_texture_usage`
 

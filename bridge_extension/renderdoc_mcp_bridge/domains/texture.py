@@ -61,7 +61,8 @@ class TextureServiceMixin:
                     refl = None
                     try:
                         refl = pipe.GetShaderReflection(stage_enum)
-                    except Exception:
+                    except Exception as exc:
+                        self._warn_swallow("texture.ctx.shader_reflection", exc)
                         refl = None
 
                     def bind_name(category, slot):
@@ -76,36 +77,36 @@ class TextureServiceMixin:
                                 for res in refl.readWriteResources:
                                     if int(res.fixedBindNumber) == int(slot):
                                         return res.name
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            self._warn_swallow("texture.ctx.bind_name", exc)
                         return ""
 
                     try:
                         for srv in pipe.GetReadOnlyResources(stage_enum, False):
                             if str(srv.descriptor.resource) == rid_str:
                                 add_ctx("SRV", stage_name, int(srv.access.index), bind_name("SRV", int(srv.access.index)))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        self._warn_swallow("texture.ctx.read_only_resources", exc)
                     try:
                         for uav in pipe.GetReadWriteResources(stage_enum, False):
                             if str(uav.descriptor.resource) == rid_str:
                                 add_ctx("UAV", stage_name, int(uav.access.index), bind_name("UAV", int(uav.access.index)))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        self._warn_swallow("texture.ctx.read_write_resources", exc)
                 try:
                     for idx, out in enumerate(pipe.GetOutputTargets()):
                         res = getattr(out, "resource", None)
                         if str(res) == rid_str:
                             add_ctx("RT", "OM", idx)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._warn_swallow("texture.ctx.output_targets", exc)
                 try:
                     ds = pipe.GetDepthTarget()
                     res = getattr(ds, "resource", None)
                     if str(res) == rid_str:
                         add_ctx("DS", "OM", 0)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._warn_swallow("texture.ctx.depth_target", exc)
                 return contexts
 
             for use in usage_items:
@@ -203,9 +204,6 @@ class TextureServiceMixin:
             for tex in textures:
                 if name_l in str(tex.resourceId).lower():
                     return tex
-        for tex in textures:
-            rid_str = str(tex.resourceId)
-            if rid_str and "Null" not in rid_str and rid_str != "ResourceId::0":
-                return tex
+        if not rid and not name_filter:
+            return None
         return None
-

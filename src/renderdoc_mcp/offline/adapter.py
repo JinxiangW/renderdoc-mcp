@@ -7,7 +7,7 @@ from pathlib import Path
 import hashlib
 import subprocess
 
-from renderdoc_mcp.contracts.common import Envelope, ErrorInfo, MetaInfo
+from renderdoc_mcp.contracts.common import DEFAULT_MODE, Envelope
 from renderdoc_mcp.integration.installation import discover_installation
 
 from .state import ActiveCaptureState, load_state, save_state
@@ -22,15 +22,18 @@ class OfflineBootstrapAdapter:
     def get_capture_status(self) -> Envelope:
         state = load_state()
         if state is None:
-            return Envelope(
-                ok=True,
-                data={"loaded": False},
-                meta=MetaInfo(cap=None, truncated=False),
-            )
+            return {
+                "ok": True,
+                "mode": DEFAULT_MODE,
+                "data": {"loaded": False},
+                "err": None,
+                "meta": {"cap": None, "truncated": False},
+            }
 
-        return Envelope(
-            ok=True,
-            data={
+        return {
+            "ok": True,
+            "mode": DEFAULT_MODE,
+            "data": {
                 "loaded": True,
                 "cap": state.cap,
                 "path": state.path,
@@ -40,18 +43,20 @@ class OfflineBootstrapAdapter:
                 "thumb": state.thumb_path,
                 "api": state.api,
             },
-            meta=MetaInfo(cap=state.cap, truncated=False),
-        )
+            "err": None,
+            "meta": {"cap": state.cap, "truncated": False},
+        }
 
     def list_captures(self, root: str, limit: int = 50) -> Envelope:
         root_path = Path(root)
         if not root_path.exists() or not root_path.is_dir():
-            return Envelope(
-                ok=False,
-                data=None,
-                err=ErrorInfo("dir_not_found", f"Directory not found: {root}"),
-                meta=MetaInfo(cap=None, truncated=False),
-            )
+            return {
+                "ok": False,
+                "mode": DEFAULT_MODE,
+                "data": None,
+                "err": {"code": "dir_not_found", "msg": f"Directory not found: {root}"},
+                "meta": {"cap": None, "truncated": False},
+            }
 
         items: list[dict[str, object]] = []
         for path in root_path.rglob("*.rdc"):
@@ -71,29 +76,33 @@ class OfflineBootstrapAdapter:
         truncated = total > limit
         items = items[:limit]
 
-        return Envelope(
-            ok=True,
-            data={"root": str(root_path), "items": items},
-            meta=MetaInfo(cap=None, truncated=truncated, count=total),
-        )
+        return {
+            "ok": True,
+            "mode": DEFAULT_MODE,
+            "data": {"root": str(root_path), "items": items},
+            "err": None,
+            "meta": {"cap": None, "truncated": truncated, "count": total},
+        }
 
     def open_capture(self, capture_path: str) -> Envelope:
         path = Path(capture_path)
         if not path.exists() or not path.is_file():
-            return Envelope(
-                ok=False,
-                data=None,
-                err=ErrorInfo("capture_not_found", f"Capture file not found: {capture_path}"),
-                meta=MetaInfo(cap=None, truncated=False),
-            )
+            return {
+                "ok": False,
+                "mode": DEFAULT_MODE,
+                "data": None,
+                "err": {"code": "capture_not_found", "msg": f"Capture file not found: {capture_path}"},
+                "meta": {"cap": None, "truncated": False},
+            }
 
         if path.suffix.lower() != ".rdc":
-            return Envelope(
-                ok=False,
-                data=None,
-                err=ErrorInfo("invalid_capture_type", f"Expected .rdc file: {capture_path}"),
-                meta=MetaInfo(cap=None, truncated=False),
-            )
+            return {
+                "ok": False,
+                "mode": DEFAULT_MODE,
+                "data": None,
+                "err": {"code": "invalid_capture_type", "msg": f"Expected .rdc file: {capture_path}"},
+                "meta": {"cap": None, "truncated": False},
+            }
 
         stat = path.stat()
         thumb_path = self._extract_thumbnail(path)
@@ -110,9 +119,10 @@ class OfflineBootstrapAdapter:
         )
         save_state(state)
 
-        return Envelope(
-            ok=True,
-            data={
+        return {
+            "ok": True,
+            "mode": DEFAULT_MODE,
+            "data": {
                 "cap": state.cap,
                 "path": state.path,
                 "name": state.name,
@@ -122,8 +132,9 @@ class OfflineBootstrapAdapter:
                 "api": state.api,
                 "verified": thumb_path is not None,
             },
-            meta=MetaInfo(cap=state.cap, truncated=False),
-        )
+            "err": None,
+            "meta": {"cap": state.cap, "truncated": False},
+        }
 
     def _extract_thumbnail(self, capture_path: Path) -> Path | None:
         out_dir = Path(".state") / "thumbs"

@@ -73,3 +73,4 @@ Output:
 
 - `ia.topo` is still empty on the current capture and needs API-specific fallback work
 - `rt` and `ds` counts may still under-report on some captures and should be refined later
+- fixed-function blend / depth / rasterizer extraction is handled elsewhere and is currently D3D11-limited

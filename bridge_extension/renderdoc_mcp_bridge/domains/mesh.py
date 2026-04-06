@@ -53,8 +53,8 @@ class MeshServiceMixin:
                             "fmt": fmt_name,
                         }
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("mesh.inspect.vertex_inputs", exc)
 
             try:
                 postvs_in = controller.GetPostVSData(0, 0, rd.MeshDataStage.VSIn)
@@ -63,16 +63,16 @@ class MeshServiceMixin:
                     result["topo"] = topo
                 if not result["idx"]:
                     result["idx"] = int(getattr(postvs_in, "numIndices", 0) or 0)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("mesh.inspect.postvs_in", exc)
 
             try:
                 postvs = controller.GetPostVSData(0, 0, rd.MeshDataStage.VSOut)
                 verts = int(getattr(postvs, "numIndices", 0) or 0)
                 if verts:
                     result["postvs"]["verts"] = verts
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("mesh.inspect.postvs_out", exc)
 
             if not result["attrs"]:
                 try:
@@ -84,8 +84,8 @@ class MeshServiceMixin:
                                 "fmt": "{}{}".format(str(attr.varType).split(".")[-1], attr.compCount),
                             }
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._warn_swallow("mesh.inspect.vs_input_signature", exc)
 
         self.ctx.Replay().BlockInvoke(collect)
 
@@ -96,4 +96,3 @@ class MeshServiceMixin:
             "err": None,
             "meta": {"cap": "active", "truncated": False},
         }
-

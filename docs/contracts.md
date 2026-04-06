@@ -2,6 +2,9 @@
 
 ## Common Response Envelope
 
+This envelope is a plain JSON dictionary contract.
+The runtime does not require a dataclass wrapper around it.
+
 Every tool response should fit this top-level shape:
 
 ```json
@@ -42,6 +45,11 @@ Error shape:
 - `data`: payload or `null`
 - `err`: error object or `null`
 - `meta`: compact metadata
+
+Implementation note:
+
+- runtime and bridge responses should serialize this shape directly as JSON-safe dict data
+- `TypedDict` or schema docs are references only; they are not runtime wrappers
 
 ## Meta Fields
 

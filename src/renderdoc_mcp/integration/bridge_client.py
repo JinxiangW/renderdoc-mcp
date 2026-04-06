@@ -10,6 +10,9 @@ import uuid
 from typing import Any
 
 
+HEARTBEAT_STALE_SECONDS = 2.0
+
+
 class LiveBridgeError(RuntimeError):
     """Raised when the live qrenderdoc bridge cannot be reached."""
 
@@ -21,9 +24,16 @@ class LiveBridgeClient:
         self.request_file = self.ipc_dir / "request.json"
         self.response_file = self.ipc_dir / "response.json"
         self.lock_file = self.ipc_dir / "lock"
+        self.heartbeat_file = self.ipc_dir / "heartbeat"
 
     def available(self) -> bool:
-        return self.ipc_dir.exists()
+        if not self.ipc_dir.exists() or not self.heartbeat_file.exists():
+            return False
+        try:
+            ts = float(self.heartbeat_file.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return False
+        return (time.time() - ts) < HEARTBEAT_STALE_SECONDS
 
     def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
         if not self.available():

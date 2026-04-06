@@ -201,7 +201,8 @@ class ExportServiceMixin:
                         if res_str and "Null" not in res_str and res_str != "ResourceId::0":
                             target_rid = res_str
                             break
-                except Exception:
+                except Exception as exc:
+                    self._warn_swallow("export.debug_save_overlay.output_targets", exc)
                     target_rid = None
 
             if target_rid is None:
@@ -282,8 +283,8 @@ class ExportServiceMixin:
                 if out is not None:
                     try:
                         controller.ShutdownOutput(out)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        self._warn_swallow("export.debug_save_overlay.shutdown_output", exc)
 
         self.ctx.Replay().BlockInvoke(collect)
 

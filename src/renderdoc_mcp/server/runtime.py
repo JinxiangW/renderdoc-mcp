@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 import argparse
 import json
 import sys
@@ -10,6 +9,7 @@ from typing import Any, Callable
 
 from renderdoc_mcp.integration import LiveBridgeClient
 
+from .app import LIVE_BRIDGE_TOOLS, OFFLINE_BOOTSTRAP_TOOLS
 from .offline_bootstrap import OfflineBootstrapTools
 
 ToolHandler = Callable[[dict[str, Any]], Any]
@@ -76,6 +76,11 @@ class LiveToolRegistry:
     def available(self) -> bool:
         return self.client.available()
 
+    def require(self, method: str, params: dict[str, Any] | None = None) -> Any:
+        if not self.available():
+            raise RuntimeError("Live qrenderdoc bridge is not available")
+        return self.invoke(method, params or {})
+
     def _get_capture_status(self, _: dict[str, Any]) -> Any:
         return self.client.call("get_capture_status")
 
@@ -113,17 +118,19 @@ class LiveToolRegistry:
         return self.client.call("debug_save_overlay", params)
 
 
-def _to_jsonable(value: Any) -> Any:
-    if is_dataclass(value):
-        return asdict(value)
-    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
-
-
 def _configure_stdio() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8")
+
+
+def _tool_descriptions(*spec_groups) -> dict[str, str]:
+    descriptions: dict[str, str] = {}
+    for group in spec_groups:
+        for spec in group:
+            descriptions[spec.name] = spec.description
+    return descriptions
 
 
 def maybe_create_fastmcp() -> Any | None:
@@ -137,22 +144,27 @@ def maybe_create_fastmcp() -> Any | None:
     offline = OfflineToolRegistry()
     live = LiveToolRegistry()
     app = FastMCP(name="RenderDoc MCP")
+    descriptions = _tool_descriptions(OFFLINE_BOOTSTRAP_TOOLS, LIVE_BRIDGE_TOOLS)
 
-    @app.tool
+    # Keep tool wrappers explicit so FastMCP can preserve per-tool signatures and schemas.
+    # `live.require()` and `description=` remove most of the duplication without hiding
+    # arguments behind dynamic registration.
+
+    @app.tool(description=descriptions["get_capture_status"])
     def get_capture_status() -> Any:
         if live.available():
             return live.invoke("get_capture_status")
         return offline.invoke("get_capture_status")
 
-    @app.tool
+    @app.tool(description=descriptions["list_captures"])
     def list_captures(root: str, limit: int = 50) -> Any:
         return offline.invoke("list_captures", {"root": root, "limit": limit})
 
-    @app.tool
+    @app.tool(description=descriptions["open_capture"])
     def open_capture(path: str) -> Any:
         return offline.invoke("open_capture", {"path": path})
 
-    @app.tool
+    @app.tool(description=descriptions["find_events"])
     def find_events(
         q: str | None = None,
         marker: str | None = None,
@@ -161,9 +173,7 @@ def maybe_create_fastmcp() -> Any | None:
         eid_max: int | None = None,
         limit: int = 50,
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke(
+        return live.require(
             "find_events",
             {
                 "q": q,
@@ -175,14 +185,12 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
-    @app.tool
+    @app.tool(description=descriptions["list_passes"])
     def list_passes(
         marker: str | None = None,
         limit: int = 50,
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke(
+        return live.require(
             "list_passes",
             {
                 "marker": marker,
@@ -190,29 +198,25 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
-    @app.tool
+    @app.tool(description=descriptions["inspect_pipeline_state"])
     def inspect_pipeline_state(
         eid: int,
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke(
+        return live.require(
             "inspect_pipeline_state",
             {
                 "eid": eid,
             },
         )
 
-    @app.tool
+    @app.tool(description=descriptions["debug_save_overlay"])
     def debug_save_overlay(
         eid: int,
         overlay: str = "drawcall",
         rid: str | None = None,
         dest: str = "PNG",
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke(
+        return live.require(
             "debug_save_overlay",
             {
                 "eid": eid,
@@ -222,14 +226,12 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
-    @app.tool
+    @app.tool(description=descriptions["inspect_shader"])
     def inspect_shader(
         eid: int,
         stage: str,
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke(
+        return live.require(
             "inspect_shader",
             {
                 "eid": eid,
@@ -237,16 +239,14 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
-    @app.tool
+    @app.tool(description=descriptions["get_shader_disasm"])
     def get_shader_disasm(
         eid: int,
         stage: str,
         offset: int = 0,
         max_lines: int = 400,
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke(
+        return live.require(
             "get_shader_disasm",
             {
                 "eid": eid,
@@ -256,15 +256,13 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
-    @app.tool
+    @app.tool(description=descriptions["inspect_texture_usage"])
     def inspect_texture_usage(
         rid: str | None = None,
         name: str | None = None,
         limit: int = 10,
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke(
+        return live.require(
             "inspect_texture_usage",
             {
                 "rid": rid,
@@ -273,40 +271,32 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
-    @app.tool
+    @app.tool(description=descriptions["inspect_mesh"])
     def inspect_mesh(
         eid: int,
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke(
+        return live.require(
             "inspect_mesh",
             {
                 "eid": eid,
             },
         )
 
-    @app.tool
+    @app.tool(description=descriptions["get_frame_packet"])
     def get_frame_packet(limit: int = 20) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke("get_frame_packet", {"limit": limit})
+        return live.require("get_frame_packet", {"limit": limit})
 
-    @app.tool
+    @app.tool(description=descriptions["get_pass_packet"])
     def get_pass_packet(
         marker: str | None = None,
         eid: int | None = None,
         limit: int = 8,
     ) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke("get_pass_packet", {"marker": marker, "eid": eid, "limit": limit})
+        return live.require("get_pass_packet", {"marker": marker, "eid": eid, "limit": limit})
 
-    @app.tool
+    @app.tool(description=descriptions["get_draw_packet"])
     def get_draw_packet(eid: int) -> Any:
-        if not live.available():
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return live.invoke("get_draw_packet", {"eid": eid})
+        return live.require("get_draw_packet", {"eid": eid})
 
     return app
 
@@ -318,7 +308,7 @@ def run_local_json(method: str, params: dict[str, Any]) -> int:
         result = live.invoke(method, params)
     else:
         result = offline.invoke(method, params)
-    print(json.dumps(result, ensure_ascii=False, indent=2, default=_to_jsonable))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

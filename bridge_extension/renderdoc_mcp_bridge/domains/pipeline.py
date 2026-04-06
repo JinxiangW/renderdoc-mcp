@@ -148,8 +148,8 @@ class PipelineStateServiceMixin(ShaderSupportMixin):
                     topo = str(getattr(ia, "topology", ""))
                     if topo:
                         result["ia"] = {"topo": topo}
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("pipeline.inspect.ia_state", exc)
 
             stage_names = [
                 ("vs", rd.ShaderStage.Vertex),
@@ -181,20 +181,20 @@ class PipelineStateServiceMixin(ShaderSupportMixin):
 
                         try:
                             result["res"]["srv"] += len(pipe.GetReadOnlyResources(stage_enum, False))
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            self._warn_swallow("pipeline.inspect.read_only_resources", exc)
                         try:
                             result["res"]["uav"] += len(pipe.GetReadWriteResources(stage_enum, False))
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            self._warn_swallow("pipeline.inspect.read_write_resources", exc)
                         try:
                             result["res"]["cbv"] += len(pipe.GetConstantBlocks(stage_enum, False))
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            self._warn_swallow("pipeline.inspect.constant_blocks", exc)
                         try:
                             result["res"]["smp"] += len(pipe.GetSamplers(stage_enum, False))
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            self._warn_swallow("pipeline.inspect.samplers", exc)
                 except Exception:
                     continue
 
@@ -205,15 +205,15 @@ class PipelineStateServiceMixin(ShaderSupportMixin):
                         result["res"]["rt"] = len(
                             [rt for rt in om.renderTargets if str(rt.resourceId) != "ResourceId::Null"]
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        self._warn_swallow("pipeline.inspect.output_merger.render_targets", exc)
                     try:
                         if str(om.depthTarget.resourceId) != "ResourceId::Null":
                             result["res"]["ds"] = 1
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as exc:
+                        self._warn_swallow("pipeline.inspect.output_merger.depth_target", exc)
+            except Exception as exc:
+                self._warn_swallow("pipeline.inspect.output_merger", exc)
 
         self.ctx.Replay().BlockInvoke(collect)
 

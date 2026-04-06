@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+import time
 import traceback
 
 from PySide2.QtCore import QObject, QTimer
@@ -11,6 +12,7 @@ IPC_DIR = os.path.join(tempfile.gettempdir(), "renderdoc_mcp_bridge")
 REQUEST_FILE = os.path.join(IPC_DIR, "request.json")
 RESPONSE_FILE = os.path.join(IPC_DIR, "response.json")
 LOCK_FILE = os.path.join(IPC_DIR, "lock")
+HEARTBEAT_FILE = os.path.join(IPC_DIR, "heartbeat")
 
 
 class BridgeServer(QObject):
@@ -39,7 +41,7 @@ class BridgeServer(QObject):
         self._cleanup()
 
     def _cleanup(self):
-        for path in (REQUEST_FILE, RESPONSE_FILE, LOCK_FILE):
+        for path in (REQUEST_FILE, RESPONSE_FILE, LOCK_FILE, HEARTBEAT_FILE):
             try:
                 if os.path.exists(path):
                     os.remove(path)
@@ -49,6 +51,11 @@ class BridgeServer(QObject):
     def _poll(self):
         if not self._running:
             return
+        try:
+            with open(HEARTBEAT_FILE, "w", encoding="utf-8") as handle:
+                handle.write(str(time.time()))
+        except OSError:
+            pass
         if not os.path.exists(REQUEST_FILE) or os.path.exists(LOCK_FILE):
             return
 

@@ -206,7 +206,8 @@ class ResourceSupportMixin:
                 refl = None
                 try:
                     refl = pipe.GetShaderReflection(stage_enum)
-                except Exception:
+                except Exception as exc:
+                    self._warn_swallow("resource_support.binding_ctx.shader_reflection", exc)
                     refl = None
 
                 def bind_name(category, slot):
@@ -221,8 +222,8 @@ class ResourceSupportMixin:
                             for res in refl.readWriteResources:
                                 if int(res.fixedBindNumber) == int(slot):
                                     return res.name
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        self._warn_swallow("resource_support.binding_ctx.bind_name", exc)
                     return ""
 
                 try:
@@ -230,31 +231,31 @@ class ResourceSupportMixin:
                         if str(srv.descriptor.resource) == rid_str:
                             add_ctx("SRV", stage_name, int(srv.access.index))
                             contexts[-1]["name"] = bind_name("SRV", int(srv.access.index))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._warn_swallow("resource_support.binding_ctx.read_only_resources", exc)
                 try:
                     for uav in pipe.GetReadWriteResources(stage_enum, False):
                         if str(uav.descriptor.resource) == rid_str:
                             add_ctx("UAV", stage_name, int(uav.access.index))
                             contexts[-1]["name"] = bind_name("UAV", int(uav.access.index))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._warn_swallow("resource_support.binding_ctx.read_write_resources", exc)
 
             try:
                 for idx, out in enumerate(pipe.GetOutputTargets()):
                     res = getattr(out, "resource", None)
                     if str(res) == rid_str:
                         add_ctx("RT", "OM", idx)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("resource_support.binding_ctx.output_targets", exc)
 
             try:
                 ds = pipe.GetDepthTarget()
                 res = getattr(ds, "resource", None)
                 if str(res) == rid_str:
                     add_ctx("DS", "OM", 0)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("resource_support.binding_ctx.depth_target", exc)
 
         self.ctx.Replay().BlockInvoke(collect)
         return contexts
@@ -265,7 +266,8 @@ class ResourceSupportMixin:
         while parent is not None:
             try:
                 name = parent.customName or ""
-            except Exception:
+            except Exception as exc:
+                self._warn_swallow("resource_support.parent_pass_name", exc)
                 name = ""
             if name:
                 return name
@@ -349,4 +351,3 @@ class ResourceSupportMixin:
             if token in usage_name:
                 return "read"
         return "other"
-

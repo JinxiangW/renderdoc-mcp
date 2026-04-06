@@ -1,32 +1,28 @@
-"""Shared compact response contracts."""
+"""Shared compact response contract references."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 DEFAULT_MODE = "summary"
 DEFAULT_LIMIT = 50
 
 
-@dataclass(slots=True)
-class ErrorInfo:
+class ErrorInfo(TypedDict):
     code: str
     msg: str
 
 
-@dataclass(slots=True)
-class MetaInfo:
-    cap: str | None = None
-    truncated: bool = False
-    count: int | None = None
-    next: int | None = None
+class MetaInfo(TypedDict, total=False):
+    cap: str | None
+    truncated: bool
+    count: int | None
+    next: int | None
 
 
-@dataclass(slots=True)
-class Envelope:
+class Envelope(TypedDict):
     ok: bool
-    mode: str = DEFAULT_MODE
-    data: Any = None
-    err: ErrorInfo | None = None
-    meta: MetaInfo | None = None
+    mode: str
+    data: Any
+    err: ErrorInfo | None
+    meta: MetaInfo | None

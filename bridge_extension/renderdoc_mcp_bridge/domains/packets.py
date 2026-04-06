@@ -255,8 +255,8 @@ class PacketServiceMixin:
                                 "slot": srv.access.index,
                             }
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._warn_swallow("packets.event_io.read_only_resources", exc)
 
             try:
                 if kind != "Dispatch":
@@ -296,10 +296,10 @@ class PacketServiceMixin:
                                         "slot": idx,
                                     }
                                 )
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                        except Exception as exc:
+                            self._warn_swallow("packets.event_io.output_targets", exc)
+            except Exception as exc:
+                self._warn_swallow("packets.event_io.outputs", exc)
 
             uav_stages = [rd.ShaderStage.Compute] if kind == "Dispatch" else [rd.ShaderStage.Pixel]
             seen_uav = set()
@@ -320,8 +320,8 @@ class PacketServiceMixin:
                                 "slot": uav.access.index,
                             }
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._warn_swallow("packets.event_io.read_write_resources", exc)
 
             packet["in_tex"] = packet["in_tex"][:8]
             packet["out_rt"] = packet["out_rt"][:8]
@@ -355,6 +355,9 @@ class PacketServiceMixin:
 
     def _fixed_function_state(self, eid):
         state = {
+            "api": str(self.ctx.APIProps().pipelineType),
+            "source_api": "D3D11",
+            "limited_to_source_api": False,
             "blend": None,
             "depth": None,
             "rast": None,
@@ -362,22 +365,54 @@ class PacketServiceMixin:
 
         def collect(controller):
             controller.SetFrameEvent(eid, True)
+            if "D3D11" not in state["api"]:
+                state["limited_to_source_api"] = True
+                return
             try:
                 d3d11 = controller.GetD3D11PipelineState()
-            except Exception:
+            except Exception as exc:
+                state["limited_to_source_api"] = True
+                self._warn_swallow("packets.fixed_function_state.get_d3d11_pipeline_state", exc)
                 return
             if d3d11 is None:
+                state["limited_to_source_api"] = True
                 return
 
             try:
                 om = d3d11.outputMerger
                 bs = om.blendState
+                targets = []
+                try:
+                    for idx, blend in enumerate(bs.blends):
+                        targets.append(
+                            {
+                                "slot": idx,
+                                "enabled": bool(blend.enabled),
+                                "logic_enabled": bool(blend.logicOperationEnabled),
+                                "logic_op": str(blend.logicOperation).split(".")[-1],
+                                "color": {
+                                    "src": str(blend.colorBlend.source).split(".")[-1],
+                                    "dst": str(blend.colorBlend.destination).split(".")[-1],
+                                    "op": str(blend.colorBlend.operation).split(".")[-1],
+                                },
+                                "alpha": {
+                                    "src": str(blend.alphaBlend.source).split(".")[-1],
+                                    "dst": str(blend.alphaBlend.destination).split(".")[-1],
+                                    "op": str(blend.alphaBlend.operation).split(".")[-1],
+                                },
+                                "write_mask": int(getattr(blend, "writeMask", 0) or 0),
+                            }
+                        )
+                except Exception as exc:
+                    self._warn_swallow("packets.fixed_function_state.blend_targets", exc)
+                    targets = []
                 state["blend"] = {
                     "alpha_to_coverage": bool(bs.alphaToCoverage),
                     "independent_blend": bool(bs.independentBlend),
+                    "targets": targets,
                 }
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("packets.fixed_function_state.blend_state", exc)
 
             try:
                 om = d3d11.outputMerger
@@ -387,8 +422,8 @@ class PacketServiceMixin:
                     "func": str(ds.depthFunction).split(".")[-1],
                     "write": bool(ds.depthWrites),
                 }
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("packets.fixed_function_state.depth_state", exc)
 
             try:
                 rast = d3d11.rasterizer.state
@@ -397,9 +432,8 @@ class PacketServiceMixin:
                     "cull": str(rast.cullMode).split(".")[-1],
                     "front_ccw": bool(rast.frontCCW),
                 }
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn_swallow("packets.fixed_function_state.rasterizer_state", exc)
 
         self.ctx.Replay().BlockInvoke(collect)
         return state
-
