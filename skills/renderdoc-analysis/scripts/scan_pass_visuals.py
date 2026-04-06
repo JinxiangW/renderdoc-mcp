@@ -255,6 +255,62 @@ def summarize_pass(pass_packet: dict, samples: list[dict]) -> tuple[str, list[st
     return "混合型 graphics pass", notes
 
 
+def summary_confidence(result: dict) -> str:
+    samples = result.get("samples", []) or []
+    if not samples:
+        return "low"
+    semantic = sum(1 for item in samples if item.get("semantic_hint"))
+    nonzero_diff = sum(1 for item in samples if float((item.get("diff") or {}).get("changeRatio", 0.0) or 0.0) > 0.0)
+    if semantic >= 2 or nonzero_diff >= 2:
+        return "high"
+    if semantic >= 1 or len(samples) >= 4:
+        return "medium"
+    return "low"
+
+
+def scan_summary(result: dict) -> dict:
+    samples = result.get("samples", []) or []
+    pass_info = result.get("pass", {}) or {}
+    semantic_hints = [str(item.get("semantic_hint")) for item in samples if item.get("semantic_hint")]
+    sample_roles: dict[str, int] = {}
+    for item in samples:
+        role = str(item.get("sample_role", "unknown"))
+        sample_roles[role] = sample_roles.get(role, 0) + 1
+    dominant_role = "unknown"
+    if sample_roles:
+        dominant_role = sorted(sample_roles.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+    key_evidence = list(result.get("notes", []) or [])[:4]
+    if semantic_hints:
+        key_evidence.append(f"semantic hints={semantic_hints[:3]}")
+
+    needs_detail: list[str] = []
+    if "æ··åˆ" in str(result.get("pass_role", "")):
+        needs_detail.append("mixed coverage pattern")
+    if any(float((item.get("diff") or {}).get("changeRatio", 0.0) or 0.0) == 0.0 for item in samples):
+        needs_detail.append("visual diff weak or zero on sampled RT0")
+    if not semantic_hints:
+        needs_detail.append("need downstream consumer or state review for semantic naming")
+
+    return {
+        "pass": {
+            "name": pass_info.get("pass", "unknown"),
+            "eid": pass_info.get("eid", "unknown"),
+            "stats": pass_info.get("stats", {}),
+        },
+        "pass_role": result.get("pass_role", "unknown"),
+        "confidence": summary_confidence(result),
+        "dominant_sample_role": dominant_role,
+        "top_candidates": semantic_hints[:3],
+        "key_evidence": key_evidence,
+        "needs_detail": needs_detail,
+        "evidence_refs": [
+            "scan_full.json#samples",
+            "scan_full.json#notes",
+        ],
+    }
+
+
 def build_markdown(pass_packet: dict, samples: list[dict], pass_role: str, notes: list[str]) -> str:
     data = pass_packet.get("data", {}) or {}
     pass_info = data.get("pass", {}) or {}
@@ -402,6 +458,9 @@ def scan_pass(marker: str, rep_limit: int, max_samples: int, out_dir: Path) -> d
         "notes": notes,
         "samples": samples,
     }
+    summary = scan_summary(result)
+    write_json(pass_dir / "scan_full.json", result)
+    write_json(pass_dir / "scan_summary.json", summary)
     write_json(pass_dir / "scan.json", result)
     (pass_dir / "scan.md").write_text(build_markdown(pass_packet, samples, pass_role, notes), encoding="utf-8")
     return result
@@ -414,14 +473,23 @@ def main() -> int:
     parser.add_argument("--max-samples", type=int, default=4)
     parser.add_argument("--out-dir", default=str(repo_root() / ".state" / "pass_scans"))
     parser.add_argument("--out")
+    parser.add_argument("--summary-out")
+    parser.add_argument("--full-out")
+    parser.add_argument("--summary-only", action="store_true")
     args = parser.parse_args()
 
     result = scan_pass(args.marker, args.rep_limit, args.max_samples, Path(args.out_dir))
-    output = json.dumps(result, ensure_ascii=False, indent=2)
+    summary = scan_summary(result)
+    full_output = json.dumps(result, ensure_ascii=False, indent=2)
+    summary_output = json.dumps(summary, ensure_ascii=False, indent=2)
+    if args.full_out:
+        Path(args.full_out).write_text(full_output + "\n", encoding="utf-8")
+    if args.summary_out:
+        Path(args.summary_out).write_text(summary_output + "\n", encoding="utf-8")
     if args.out:
-        Path(args.out).write_text(output + "\n", encoding="utf-8")
+        Path(args.out).write_text((summary_output if args.summary_only else full_output) + "\n", encoding="utf-8")
     else:
-        print(output)
+        print(summary_output if args.summary_only else full_output)
     return 0
 
 
