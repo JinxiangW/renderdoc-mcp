@@ -61,6 +61,7 @@ class LiveToolRegistry:
             "get_pass_packet": self._get_pass_packet,
             "get_draw_packet": self._get_draw_packet,
             "debug_save_overlay": self._debug_save_overlay,
+            "debug_save_texture": self._debug_save_texture,
             "inspect_pipeline_state": self._inspect_pipeline_state,
             "inspect_shader": self._inspect_shader,
             "get_shader_disasm": self._get_shader_disasm,
@@ -116,6 +117,9 @@ class LiveToolRegistry:
 
     def _debug_save_overlay(self, params: dict[str, Any]) -> Any:
         return self.client.call("debug_save_overlay", params)
+
+    def _debug_save_texture(self, params: dict[str, Any]) -> Any:
+        return self.client.call("debug_save_texture", params)
 
 
 def _configure_stdio() -> None:
@@ -222,6 +226,21 @@ def maybe_create_fastmcp() -> Any | None:
                 "eid": eid,
                 "overlay": overlay,
                 "rid": rid,
+                "dest": dest,
+            },
+        )
+
+    @app.tool(description=descriptions["debug_save_texture"])
+    def debug_save_texture(
+        rid: str,
+        eid: int | None = None,
+        dest: str = "PNG",
+    ) -> Any:
+        return live.require(
+            "debug_save_texture",
+            {
+                "rid": rid,
+                "eid": eid,
                 "dest": dest,
             },
         )

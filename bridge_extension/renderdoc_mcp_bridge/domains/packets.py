@@ -4,6 +4,111 @@ import renderdoc as rd
 
 
 class PacketServiceMixin:
+    def _action_name(self, action):
+        return action.customName or action.GetName(self.ctx.GetStructuredFile())
+
+    @staticmethod
+    def _is_marker_action(action):
+        return action is not None and len(action.children) > 0
+
+    def _compact_action_ref(self, action):
+        if action is None:
+            return None
+        return {
+            "eid": action.eventId,
+            "name": self._action_name(action),
+            "type": self._action_type(action),
+        }
+
+    def _find_action_path(self, actions, eid, path=None):
+        path = path or []
+        for action in actions:
+            current = path + [action]
+            if int(action.eventId) == int(eid):
+                return current
+            if len(action.children) > 0:
+                found = self._find_action_path(action.children, eid, current)
+                if found:
+                    return found
+        return None
+
+    def _flatten_non_marker_actions(self, actions):
+        items = []
+        for action in actions:
+            if self._is_marker_action(action):
+                items.extend(self._flatten_non_marker_actions(action.children))
+            else:
+                items.append(action)
+        return items
+
+    def _pass_context_for_eid(self, eid):
+        path = self._find_action_path(self.ctx.CurRootActions(), int(eid))
+        if not path:
+            return {
+                "marker_path": "",
+                "markers": [],
+                "parent_pass": None,
+                "root_pass": None,
+                "position": {
+                    "index": None,
+                    "count": 0,
+                    "draw_dispatch_index": None,
+                    "draw_dispatch_count": 0,
+                },
+                "neighbors": {"prev": None, "next": None},
+            }
+
+        markers = [item for item in path[:-1] if self._is_marker_action(item)]
+        marker_items = [{"eid": item.eventId, "name": self._action_name(item)} for item in markers]
+        parent_marker = markers[-1] if markers else None
+        root_marker = markers[0] if markers else None
+        owner_actions = parent_marker.children if parent_marker is not None else self.ctx.CurRootActions()
+        ordered = self._flatten_non_marker_actions(owner_actions)
+        draw_dispatch = [item for item in ordered if self._action_type(item) in ("Draw", "Dispatch")]
+
+        index = None
+        prev_item = None
+        next_item = None
+        for idx, item in enumerate(ordered):
+            if int(item.eventId) == int(eid):
+                index = idx + 1
+                if idx > 0:
+                    prev_item = ordered[idx - 1]
+                if idx + 1 < len(ordered):
+                    next_item = ordered[idx + 1]
+                break
+
+        dd_index = None
+        for idx, item in enumerate(draw_dispatch):
+            if int(item.eventId) == int(eid):
+                dd_index = idx + 1
+                break
+
+        return {
+            "marker_path": " / ".join(item["name"] for item in marker_items if item.get("name")),
+            "markers": marker_items,
+            "parent_pass": (
+                self._summarize_marker(self._action_name(parent_marker), parent_marker.eventId, parent_marker.children)
+                if parent_marker is not None
+                else None
+            ),
+            "root_pass": (
+                self._summarize_marker(self._action_name(root_marker), root_marker.eventId, root_marker.children)
+                if root_marker is not None
+                else None
+            ),
+            "position": {
+                "index": index,
+                "count": len(ordered),
+                "draw_dispatch_index": dd_index,
+                "draw_dispatch_count": len(draw_dispatch),
+            },
+            "neighbors": {
+                "prev": self._compact_action_ref(prev_item),
+                "next": self._compact_action_ref(next_item),
+            },
+        }
+
     def get_frame_packet(self, params):
         if not self.ctx.IsCaptureLoaded():
             return self._no_capture()
@@ -112,6 +217,7 @@ class PacketServiceMixin:
             "eid": eid,
             "name": action.customName or action.GetName(self.ctx.GetStructuredFile()),
             "type": kind,
+            "context": self._pass_context_for_eid(eid),
             "counts": {
                 "idx": int(getattr(action, "numIndices", 0) or 0),
                 "inst": int(getattr(action, "numInstances", 0) or 0),
@@ -213,10 +319,39 @@ class PacketServiceMixin:
     def _event_io_packet(self, action, kind):
         packet = {
             "in_tex": [],
+            "in_tex_meta": {
+                "total_bindings": 0,
+                "unique_resources": 0,
+                "reported_resources": 0,
+                "truncated": False,
+                "cap": 8,
+                "stage_bindings": {},
+            },
             "out_rt": [],
+            "out_rt_meta": {
+                "total_resources": 0,
+                "reported_resources": 0,
+                "truncated": False,
+                "cap": 8,
+            },
             "out_uav": [],
+            "out_uav_meta": {
+                "total_bindings": 0,
+                "unique_resources": 0,
+                "reported_resources": 0,
+                "truncated": False,
+                "cap": 8,
+                "stage_bindings": {},
+            },
             "out_ds": None,
             "out_next": [],
+            "out_next_meta": {
+                "source_resources_considered": 0,
+                "reported_uses": 0,
+                "truncated": False,
+                "resource_cap": 4,
+                "use_cap": 8,
+            },
         }
         eid = action.eventId
 
@@ -225,38 +360,50 @@ class PacketServiceMixin:
             pipe = controller.GetPipelineState()
 
             if kind == "Dispatch":
-                stages = [rd.ShaderStage.Compute]
+                stages = [("CS", rd.ShaderStage.Compute)]
             else:
                 stages = [
-                    rd.ShaderStage.Vertex,
-                    rd.ShaderStage.Hull,
-                    rd.ShaderStage.Domain,
-                    rd.ShaderStage.Geometry,
-                    rd.ShaderStage.Pixel,
+                    ("VS", rd.ShaderStage.Vertex),
+                    ("HS", rd.ShaderStage.Hull),
+                    ("DS", rd.ShaderStage.Domain),
+                    ("GS", rd.ShaderStage.Geometry),
+                    ("PS", rd.ShaderStage.Pixel),
                 ]
 
-            seen_inputs = set()
+            input_map = {}
+            out_rt_map = {}
+            out_uav_map = {}
             out_rids = []
 
-            for stage in stages:
+            for stage_name, stage in stages:
+                stage_binding_count = 0
                 try:
                     for srv in pipe.GetReadOnlyResources(stage, False):
+                        stage_binding_count += 1
                         rid = srv.descriptor.resource
                         rid_str = str(rid)
                         if not rid_str or "Null" in rid_str or rid_str == "ResourceId::0":
                             continue
-                        if rid_str in seen_inputs:
-                            continue
-                        seen_inputs.add(rid_str)
-                        packet["in_tex"].append(
-                            {
+                        slot = int(getattr(srv.access, "index", -1) or -1)
+                        entry = input_map.get(rid_str)
+                        if entry is None:
+                            entry = {
                                 "rid": rid_str,
                                 "name": self.ctx.GetResourceName(rid),
-                                "slot": srv.access.index,
+                                "meta": self._resource_meta(rid),
+                                "stages": [],
+                                "slots": [],
                             }
-                        )
+                            input_map[rid_str] = entry
+                        if stage_name not in entry["stages"]:
+                            entry["stages"].append(stage_name)
+                        slot_ref = {"stage": stage_name, "slot": slot}
+                        if slot_ref not in entry["slots"]:
+                            entry["slots"].append(slot_ref)
                 except Exception as exc:
                     self._warn_swallow("packets.event_io.read_only_resources", exc)
+                packet["in_tex_meta"]["stage_bindings"][stage_name] = stage_binding_count
+                packet["in_tex_meta"]["total_bindings"] += stage_binding_count
 
             try:
                 if kind != "Dispatch":
@@ -265,13 +412,12 @@ class PacketServiceMixin:
                         if not rid_str or "Null" in rid_str or rid_str == "ResourceId::0":
                             continue
                         out_rids.append((rid, rid_str))
-                        packet["out_rt"].append(
-                            {
-                                "rid": rid_str,
-                                "name": self.ctx.GetResourceName(rid),
-                                "slot": idx,
-                            }
-                        )
+                        out_rt_map[rid_str] = {
+                            "rid": rid_str,
+                            "name": self.ctx.GetResourceName(rid),
+                            "slot": idx,
+                            "meta": self._resource_meta(rid),
+                        }
 
                     rid = action.depthOut
                     rid_str = str(rid)
@@ -279,9 +425,10 @@ class PacketServiceMixin:
                         packet["out_ds"] = {
                             "rid": rid_str,
                             "name": self.ctx.GetResourceName(rid),
+                            "meta": self._resource_meta(rid),
                         }
 
-                    if not packet["out_rt"] and packet["out_ds"] is None:
+                    if not out_rt_map and packet["out_ds"] is None:
                         try:
                             outs = pipe.GetOutputTargets()
                             for idx, rt in enumerate(outs):
@@ -289,46 +436,81 @@ class PacketServiceMixin:
                                 rid_str = str(rid)
                                 if not rid_str or "Null" in rid_str or rid_str == "ResourceId::0":
                                     continue
-                                packet["out_rt"].append(
-                                    {
-                                        "rid": rid_str,
-                                        "name": self.ctx.GetResourceName(rid),
-                                        "slot": idx,
-                                    }
-                                )
+                                out_rt_map[rid_str] = {
+                                    "rid": rid_str,
+                                    "name": self.ctx.GetResourceName(rid),
+                                    "slot": idx,
+                                    "meta": self._resource_meta(rid),
+                                }
+                                out_rids.append((rid, rid_str))
                         except Exception as exc:
                             self._warn_swallow("packets.event_io.output_targets", exc)
             except Exception as exc:
                 self._warn_swallow("packets.event_io.outputs", exc)
 
-            uav_stages = [rd.ShaderStage.Compute] if kind == "Dispatch" else [rd.ShaderStage.Pixel]
-            seen_uav = set()
-            for stage in uav_stages:
+            uav_stages = [("CS", rd.ShaderStage.Compute)] if kind == "Dispatch" else [("PS", rd.ShaderStage.Pixel)]
+            for stage_name, stage in uav_stages:
+                stage_binding_count = 0
                 try:
                     for uav in pipe.GetReadWriteResources(stage, False):
+                        stage_binding_count += 1
                         rid = uav.descriptor.resource
                         rid_str = str(rid)
                         if not rid_str or "Null" in rid_str or rid_str == "ResourceId::0":
                             continue
-                        if rid_str in seen_uav:
-                            continue
-                        seen_uav.add(rid_str)
-                        packet["out_uav"].append(
-                            {
+                        slot = int(getattr(uav.access, "index", -1) or -1)
+                        entry = out_uav_map.get(rid_str)
+                        if entry is None:
+                            entry = {
                                 "rid": rid_str,
                                 "name": self.ctx.GetResourceName(rid),
-                                "slot": uav.access.index,
+                                "meta": self._resource_meta(rid),
+                                "stages": [],
+                                "slots": [],
                             }
-                        )
+                            out_uav_map[rid_str] = entry
+                            out_rids.append((rid, rid_str))
+                        if stage_name not in entry["stages"]:
+                            entry["stages"].append(stage_name)
+                        slot_ref = {"stage": stage_name, "slot": slot}
+                        if slot_ref not in entry["slots"]:
+                            entry["slots"].append(slot_ref)
                 except Exception as exc:
                     self._warn_swallow("packets.event_io.read_write_resources", exc)
+                packet["out_uav_meta"]["stage_bindings"][stage_name] = stage_binding_count
+                packet["out_uav_meta"]["total_bindings"] += stage_binding_count
 
-            packet["in_tex"] = packet["in_tex"][:8]
-            packet["out_rt"] = packet["out_rt"][:8]
-            packet["out_uav"] = packet["out_uav"][:8]
+            in_items = list(input_map.values())
+            out_rt_items = list(out_rt_map.values())
+            out_uav_items = list(out_uav_map.values())
+
+            packet["in_tex_meta"]["unique_resources"] = len(in_items)
+            packet["in_tex_meta"]["reported_resources"] = min(len(in_items), packet["in_tex_meta"]["cap"])
+            packet["in_tex_meta"]["truncated"] = len(in_items) > packet["in_tex_meta"]["cap"]
+            packet["out_rt_meta"]["total_resources"] = len(out_rt_items)
+            packet["out_rt_meta"]["reported_resources"] = min(len(out_rt_items), packet["out_rt_meta"]["cap"])
+            packet["out_rt_meta"]["truncated"] = len(out_rt_items) > packet["out_rt_meta"]["cap"]
+            packet["out_uav_meta"]["unique_resources"] = len(out_uav_items)
+            packet["out_uav_meta"]["reported_resources"] = min(len(out_uav_items), packet["out_uav_meta"]["cap"])
+            packet["out_uav_meta"]["truncated"] = len(out_uav_items) > packet["out_uav_meta"]["cap"]
+
+            packet["in_tex"] = in_items[: packet["in_tex_meta"]["cap"]]
+            packet["out_rt"] = out_rt_items[: packet["out_rt_meta"]["cap"]]
+            packet["out_uav"] = out_uav_items[: packet["out_uav_meta"]["cap"]]
 
             downstream = []
-            for rid, rid_str in out_rids[:2]:
+            unique_out_rids = []
+            seen_out_rids = set()
+            for rid, rid_str in out_rids:
+                if rid_str in seen_out_rids:
+                    continue
+                seen_out_rids.add(rid_str)
+                unique_out_rids.append((rid, rid_str))
+            packet["out_next_meta"]["source_resources_considered"] = min(
+                len(unique_out_rids), packet["out_next_meta"]["resource_cap"]
+            )
+            packet["out_next_meta"]["truncated"] = len(unique_out_rids) > packet["out_next_meta"]["resource_cap"]
+            for rid, rid_str in unique_out_rids[: packet["out_next_meta"]["resource_cap"]]:
                 try:
                     usage_items = controller.GetUsage(rid)
                 except Exception:
@@ -343,14 +525,27 @@ class PacketServiceMixin:
                             "usage": str(use.usage).split(".")[-1],
                         }
                     )
-                    if len(downstream) >= 8:
+                    if len(downstream) >= packet["out_next_meta"]["use_cap"]:
                         break
-                if len(downstream) >= 8:
+                if len(downstream) >= packet["out_next_meta"]["use_cap"]:
                     break
 
             packet["out_next"] = downstream
+            packet["out_next_meta"]["reported_uses"] = len(downstream)
+            if len(downstream) >= packet["out_next_meta"]["use_cap"]:
+                packet["out_next_meta"]["truncated"] = True
 
         self.ctx.Replay().BlockInvoke(collect)
+        for item in packet["out_next"]:
+            use_action = self.ctx.GetAction(int(item.get("eid", 0) or 0))
+            if use_action is None:
+                continue
+            item["name"] = self._action_name(use_action)
+            item["type"] = self._action_type(use_action)
+            ctx = self._pass_context_for_eid(use_action.eventId)
+            root_pass = ctx.get("root_pass") or {}
+            parent_pass = ctx.get("parent_pass") or {}
+            item["pass"] = root_pass.get("pass") or parent_pass.get("pass") or ctx.get("marker_path") or None
         return packet
 
     def _fixed_function_state(self, eid):

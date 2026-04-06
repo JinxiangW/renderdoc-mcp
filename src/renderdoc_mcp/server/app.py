@@ -89,4 +89,9 @@ LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
         True,
         "Save a debug overlay texture such as Highlight Drawcall for one live event.",
     ),
+    ToolSpec(
+        "debug_save_texture",
+        True,
+        "Save one live texture resource to an export file for before/after validation.",
+    ),
 )

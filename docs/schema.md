@@ -149,6 +149,46 @@ When fixed-function state appears inside draw packets, treat it as API-limited:
 - responses should carry the source API and a flag when the current capture API is outside that supported path
 - callers must not assume those fixed-function fields are equally populated on Vulkan or D3D12 captures
 
+### Draw Packet Context Note
+
+When using `get_draw_packet` for reverse engineering:
+
+- `context.parent_pass` is the nearest enclosing marker in the action path
+- `context.root_pass` is the outermost enclosing marker in the same action path
+- `context.position` and `context.neighbors` are computed within the nearest enclosing marker scope
+
+### Draw Packet IO Note
+
+When using `get_draw_packet.io`:
+
+- `in_tex` is a deduplicated resource list across bound stages, not a direct copy of one stage's reflection bindings
+- compare packet completeness using `in_tex_meta`, `out_rt_meta`, `out_uav_meta`, and `out_next_meta`
+- do not compare `inspect_shader.bind.srv` directly against `len(io.in_tex)` as if they were the same counting basis
+- downstream `out_next` is capped and should be treated as an early-consumer sample, not an exhaustive usage list
+
+### Shader Inspection Note
+
+When using `inspect_shader` for action reverse engineering:
+
+- `bindings` is the stage-local binding table and is a better source for `t#`, `u#`, `cb#`, and `s#` than pass-level summaries
+- `cbufs` is a compact preview of constant-buffer contents and may truncate long buffers
+- `sig.inputs` and `sig.outputs` help map stage interfaces and output registers before deeper disassembly work
+
+### Disassembly Window Note
+
+When using `get_shader_disasm`:
+
+- use `line_start`, `line_end`, and `lines` when you need to cite code ranges
+- the returned window is paged; one call is not guaranteed to contain every decisive range
+
+### Mesh Inspection Note
+
+When using `inspect_mesh` for action reverse engineering:
+
+- `attrs` is the input-layout view
+- `vbs` and `ib` summarize bound vertex and index buffers
+- treat these as binding facts, not as a substitute for full mesh export
+
 ## Terminology Policy
 
 - Use standard graphics terms

@@ -28,21 +28,6 @@ Structured JSON form:
 }
 ```
 
-Consumer-evidence extension:
-
-```json
-{
-  "rid": "ResourceId::36801",
-  "consumer": {
-    "eid": 9642,
-    "pass": "Compute Pass #2",
-    "stage": "cs"
-  },
-  "shader": {},
-  "shader_disasm": {}
-}
-```
-
 Visual-validation extension:
 
 ```json
@@ -109,33 +94,41 @@ Use this structure:
 
 ```text
 Pass: <name> (eid=<eid>)
-最终结论: <semantic label>
-置信度: <high|medium|low>
-统计: draw=<draw> dispatch=<dispatch> clear=<clear>
+top1: <family / label>
+top2: <family / label or none>
+Confidence: <high|medium|low>
+Stats: draw=<draw> dispatch=<dispatch> clear=<clear>
 
-总结:
-<1-2 句中文总结>
-
-关键依据:
+Support for top1:
 - <evidence 1>
 - <evidence 2>
 
-Action Cluster:
+Support for top2:
+- <evidence 1>
+
+Counter-evidence:
+- <counter evidence 1>
+- <counter evidence 2>
+
+Action Clusters:
 - <cluster 1>
 - <cluster 2>
 
-证据文件:
-- <file path 1>
-- <file path 2>
+Decision:
+<why top1 beats top2>
 
-不确定性:
+Final Name:
+<one-line semantic label>
+
+Uncertainties:
 - <uncertainty 1>
 ```
 
 Acceptance:
 
-- top-line conclusion must be semantic, not geometric
-- evidence must cite either action clusters, shader behavior, or visual change
+- top-line candidates must be semantic, not geometric
+- evidence must cite either action clusters, shader behavior, fixed-function state, or visual change
+- include at least one counter-evidence bullet when the pass is ambiguous
 - use scan output as input evidence, not as the final conclusion itself
 
 ## Resource Flow Shape
@@ -210,6 +203,70 @@ Acceptance:
 
 - cite stage and binding evidence
 - separate binding facts from semantic guesses
+
+## Action Reverse Shape
+
+Use this structure:
+
+```text
+Action: <eid> <name> (<Draw|Dispatch>)
+Marker Path: <marker path or unknown>
+Parent Pass: <nearest marker pass name or unknown>
+Root Pass: <outermost pass name or unknown>
+Position: <index within pass or unknown>
+
+Neighbors:
+- prev: <eid or none>
+- next: <eid or none>
+
+Geometry:
+- <topology / counts / attribute pattern>
+- <vertex/index buffer bindings, or not applicable>
+
+Fixed-function State:
+- <blend / depth / rasterizer facts, or not applicable / API-limited>
+
+Resource Inventory:
+- VS: <t#/cb#/vb inputs and roles>
+- PS: <t#/cb#/s# inputs and roles>
+- CS: <t#/u#/cb# inputs and roles, or not applicable>
+
+Constant Buffers:
+- <cb slot name size variables and likely usage>
+
+Shader Segments:
+- <lines A-B: what this range does>
+- <lines C-D: what this range does>
+
+Outputs:
+- <o#/rt/uav target and likely channel meaning>
+
+Shader Behavior:
+- <stage and entry>
+- <how resources are actually used in code>
+
+Screen Contribution:
+- <overlay or before/after observation, if collected>
+
+Downstream:
+- <first visible consumers>
+
+Conclusion:
+- <what this action is doing>
+- <why that conclusion fits>
+
+Limits:
+- <missing data, IO truncation, or ambiguity>
+```
+
+Acceptance:
+
+- include pass context, resource IO, and shader behavior
+- for dispatch events, mark geometry or fixed-function sections as not applicable instead of forcing graphics language
+- keep binding coverage provisional when packet IO is partial
+- summarize motifs rather than translating the whole disassembly
+- use explicit disassembly line ranges for the decisive stage
+- explain the important resources, not just that they are bound
 
 ## Reverse Pipeline Shape
 

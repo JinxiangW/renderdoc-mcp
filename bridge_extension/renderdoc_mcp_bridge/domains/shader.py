@@ -6,6 +6,97 @@ from .pipeline import ShaderSupportMixin
 
 
 class ShaderServiceMixin(ShaderSupportMixin):
+    @staticmethod
+    def _safe_int(value):
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _enum_tail(value):
+        try:
+            text = str(value)
+            return text.split(".")[-1] if text else text
+        except Exception:
+            return None
+
+    def _var_type_summary(self, var_type):
+        if var_type is None:
+            return None
+        try:
+            desc = getattr(var_type, "descriptor", None)
+            if desc is not None:
+                rows = self._safe_int(getattr(desc, "rows", None))
+                cols = self._safe_int(getattr(desc, "cols", None))
+                elements = self._safe_int(getattr(desc, "elements", None))
+                var_class = self._enum_tail(getattr(desc, "varClass", None))
+                var_type_name = self._enum_tail(getattr(desc, "type", None))
+                summary = {
+                    "class": var_class,
+                    "type": var_type_name,
+                    "rows": rows,
+                    "cols": cols,
+                }
+                if elements and elements > 1:
+                    summary["elements"] = elements
+                return summary
+        except Exception as exc:
+            self._warn_swallow("shader.var_type_summary", exc)
+        return None
+
+    def _constant_buffer_summary(self, block, slot, max_vars=24):
+        item = {
+            "slot": slot,
+            "name": getattr(block, "name", "") or "",
+            "vars": 0,
+            "size": self._safe_int(getattr(block, "byteSize", None)),
+            "variables": [],
+            "truncated": False,
+        }
+        try:
+            variables = list(getattr(block, "variables", []) or [])
+        except Exception as exc:
+            self._warn_swallow("shader.constant_buffer_summary.variables", exc)
+            variables = []
+        item["vars"] = len(variables)
+        if len(variables) > max_vars:
+            item["truncated"] = True
+        for var in variables[:max_vars]:
+            info = {
+                "name": getattr(var, "name", "") or "",
+                "offset": self._safe_int(getattr(var, "byteOffset", None)),
+                "size": self._safe_int(getattr(var, "byteSize", None)),
+            }
+            type_summary = self._var_type_summary(getattr(var, "type", None))
+            if type_summary is not None:
+                info["type"] = type_summary
+            item["variables"].append(info)
+        return item
+
+    def _signature_items(self, items, kind):
+        out = []
+        try:
+            for item in items or []:
+                entry = {
+                    "name": getattr(item, "semanticIdxName", "") or getattr(item, "varName", "") or "",
+                    "index": self._safe_int(getattr(item, "semanticIndex", None)),
+                    "reg": self._safe_int(getattr(item, "regIndex", None)),
+                    "comp_count": self._safe_int(getattr(item, "compCount", None)),
+                }
+                sys_value = self._enum_tail(getattr(item, "systemValue", None))
+                if sys_value and sys_value != "Undefined":
+                    entry["system_value"] = sys_value
+                var_type = self._enum_tail(getattr(item, "varType", None))
+                if var_type:
+                    entry["type"] = var_type
+                if kind == "output":
+                    entry["mask"] = self._safe_int(getattr(item, "regChannelMask", None))
+                out.append(entry)
+        except Exception as exc:
+            self._warn_swallow("shader.signature_items", exc)
+        return out
+
     def _binding_name_map(self, items):
         mapping = {}
         try:
@@ -188,15 +279,16 @@ class ShaderServiceMixin(ShaderSupportMixin):
             }
             cbufs = []
             try:
-                for block in refl.constantBlocks:
-                    cbufs.append(
-                        {
-                            "name": block.name,
-                            "vars": len(block.variables),
-                        }
-                    )
+                blocks = list(refl.constantBlocks)
             except Exception:
-                pass
+                blocks = []
+            for slot, block in enumerate(blocks):
+                cbufs.append(self._constant_buffer_summary(block, slot))
+
+            sig = {
+                "inputs": self._signature_items(getattr(refl, "inputSignature", None), "input"),
+                "outputs": self._signature_items(getattr(refl, "outputSignature", None), "output"),
+            }
 
             result = {
                 "ok": True,
@@ -211,6 +303,7 @@ class ShaderServiceMixin(ShaderSupportMixin):
                     "bind": bind,
                     "bindings": self._collect_shader_bindings(pipe, stage_enum, refl),
                     "cbufs": cbufs,
+                    "sig": sig,
                     "code": self._shader_snippet(controller, pipe, stage_enum, refl),
                 },
                 "err": None,
@@ -300,8 +393,14 @@ class ShaderServiceMixin(ShaderSupportMixin):
                     "target": disasm.get("target"),
                     "line_count": line_count,
                     "offset": offset,
+                    "line_start": offset + 1 if line_count else 0,
+                    "line_end": offset + len(window),
                     "returned": len(window),
                     "truncated": offset + len(window) < line_count,
+                    "lines": [
+                        {"line": offset + idx + 1, "text": line}
+                        for idx, line in enumerate(window)
+                    ],
                     "text": "\n".join(window),
                 },
                 "err": None,

@@ -1,6 +1,6 @@
 ---
 name: renderdoc-analysis
-description: Analyze RenderDoc observe-layer evidence from renderdoc-mcp. Use for pass classification, resource-flow tracing, shader/material usage, frame reports, and pipeline reconstruction.
+description: Analyze RenderDoc observe-layer evidence from renderdoc-mcp. Use for action reverse engineering, pass classification, resource-flow tracing, shader/material usage, frame reports, and pipeline reconstruction.
 ---
 
 # RenderDoc Analysis
@@ -16,6 +16,7 @@ Task routes:
 - `analyze-pass`
 - `trace-resource-flow`
 - `analyze-material-usage`
+- `reverse-action`
 - `build-frame-report`
 - `reverse-render-pipeline`
 
@@ -27,6 +28,7 @@ Read only the references you need:
 - conclusion rules: `references/conclusion-rules.md`
 - evidence guardrails: `references/evidence-guardrails.md`
 - report format: `references/report-format.md`
+- shader motifs: `references/shader-patterns.md`
 
 Script rule:
 - Always read `*_summary.json` first.
@@ -79,6 +81,47 @@ Default path:
 4. `inspect_texture_usage` only for the few bindings that matter
 5. `inspect_mesh` only if geometry context changes the answer
 6. Write the result with `references/report-format.md`
+
+## reverse-action
+
+Use for one draw or dispatch when the goal is to explain shader behavior, resource usage, code segments, and output semantics in detail.
+
+Default path:
+
+1. `get_draw_packet` is the required entry.
+2. Use draw-packet `context` first for marker path, parent pass, root pass, position, and neighbors. Add `get_pass_packet` only when broader pass role or sibling evidence beyond packet context matters.
+3. For draws, `inspect_mesh` is the default, not optional. You need vertex attributes plus vertex/index buffer bindings before explaining the shader. For dispatches, mark geometry as not applicable.
+4. For draws, inspect both `vs` and `ps` unless one stage is proven irrelevant. For dispatches, inspect `cs`.
+5. Build a binding inventory before drawing conclusions:
+   - `inspect_shader.bind`
+   - `inspect_shader.bindings`
+   - `inspect_shader.cbufs`
+   - `inspect_shader.sig`
+   - draw-packet `io`
+6. Use `get_shader_disasm` to segment the decisive stage by code ranges. At minimum identify:
+   - declaration / resource setup
+   - input reconstruction or coordinate prep
+   - texture sampling and decode blocks
+   - lighting or material evaluation blocks
+   - output packing / final writes
+7. Use disassembly line ranges explicitly. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries.
+8. Treat resource semantics as unproven until tied to actual code use. Resource name, format, dimensions, and downstream use all matter.
+9. Use `inspect_texture_usage` for the few inputs or outputs that change the conclusion. Default priority:
+   - one main output RT or UAV
+   - one disputed input texture
+   - one downstream consumer if output channel meaning is uncertain
+10. Use `io.in_tex_meta` and `io.out_*_meta` to judge partial coverage. Do not compare `inspect_shader.bind.srv` directly against `io.in_tex` as if they were the same counting basis.
+11. Export overlay or before/after RT only when visible contribution itself is disputed; do not let overlay work replace shader analysis.
+12. Write the result with `references/report-format.md` and use `references/shader-patterns.md` for motif recognition.
+
+Reverse-action acceptance bar:
+
+- list the key `t#`, `u#`, `cb#`, and `vb/ib` inputs
+- explain what each important resource is doing, not just that it is bound
+- split the decisive shader into line ranges with a function for each range
+- describe `o#` or UAV outputs with channel-level evidence when available
+- keep pass-family guesses secondary to shader/resource facts
+- do not use `BLENDWEIGHTS/BLENDINDICES` as semantic proof beyond mesh-format context
 
 ## build-frame-report
 

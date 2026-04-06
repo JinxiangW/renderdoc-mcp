@@ -4,6 +4,21 @@ import renderdoc as rd
 
 
 class MeshServiceMixin:
+    @staticmethod
+    def _safe_int(value):
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _enum_tail(value):
+        try:
+            text = str(value)
+            return text.split(".")[-1] if text else text
+        except Exception:
+            return None
+
     def inspect_mesh(self, params):
         if not self.ctx.IsCaptureLoaded():
             return self._no_capture()
@@ -35,6 +50,8 @@ class MeshServiceMixin:
             "idx": int(getattr(action, "numIndices", 0) or 0),
             "inst": int(getattr(action, "numInstances", 0) or 0),
             "attrs": [],
+            "vbs": [],
+            "ib": None,
             "postvs": {},
         }
 
@@ -47,14 +64,68 @@ class MeshServiceMixin:
                 for attr in attrs:
                     fmt = attr.format
                     fmt_name = "{}{}".format(str(fmt.compType).split(".")[-1], fmt.compCount)
-                    result["attrs"].append(
-                        {
-                            "name": attr.name,
-                            "fmt": fmt_name,
-                        }
-                    )
+                    item = {
+                        "name": attr.name,
+                        "fmt": fmt_name,
+                    }
+                    slot = self._safe_int(getattr(attr, "vertexBuffer", None))
+                    if slot is not None:
+                        item["vb_slot"] = slot
+                    byte_offset = self._safe_int(getattr(attr, "byteOffset", None))
+                    if byte_offset is not None:
+                        item["offset"] = byte_offset
+                    per_instance = getattr(attr, "perInstance", None)
+                    if per_instance is not None:
+                        item["per_instance"] = bool(per_instance)
+                    instance_rate = self._safe_int(getattr(attr, "instanceRate", None))
+                    if instance_rate is not None:
+                        item["instance_rate"] = instance_rate
+                    result["attrs"].append(item)
             except Exception as exc:
                 self._warn_swallow("mesh.inspect.vertex_inputs", exc)
+
+            try:
+                getter = getattr(pipe, "GetVBuffers", None)
+                buffers = getter() if callable(getter) else []
+                for idx, vb in enumerate(buffers or []):
+                    rid = getattr(vb, "resourceId", None)
+                    rid_str = str(rid)
+                    if not rid_str or "Null" in rid_str or rid_str == "ResourceId::0":
+                        continue
+                    entry = {
+                        "slot": idx,
+                        "rid": rid_str,
+                        "name": self.ctx.GetResourceName(rid),
+                        "meta": self._resource_meta(rid),
+                        "stride": self._safe_int(getattr(vb, "byteStride", None)),
+                        "offset": self._safe_int(getattr(vb, "byteOffset", None)),
+                    }
+                    per_instance = getattr(vb, "perInstance", None)
+                    if per_instance is not None:
+                        entry["per_instance"] = bool(per_instance)
+                    instance_rate = self._safe_int(getattr(vb, "instanceRate", None))
+                    if instance_rate is not None:
+                        entry["instance_rate"] = instance_rate
+                    result["vbs"].append(entry)
+            except Exception as exc:
+                self._warn_swallow("mesh.inspect.vertex_buffers", exc)
+
+            try:
+                getter = getattr(pipe, "GetIBuffer", None)
+                ib = getter() if callable(getter) else None
+                rid = getattr(ib, "resourceId", None) if ib is not None else None
+                rid_str = str(rid)
+                if rid_str and "Null" not in rid_str and rid_str != "ResourceId::0":
+                    result["ib"] = {
+                        "rid": rid_str,
+                        "name": self.ctx.GetResourceName(rid),
+                        "meta": self._resource_meta(rid),
+                        "offset": self._safe_int(getattr(ib, "byteOffset", None)),
+                        "byte_stride": self._safe_int(getattr(ib, "byteStride", None)),
+                        "format": self._enum_tail(getattr(getattr(ib, "format", None), "compType", None)),
+                    }
+            except Exception as exc:
+                self._warn_swallow("mesh.inspect.index_buffer", exc)
 
             try:
                 postvs_in = controller.GetPostVSData(0, 0, rd.MeshDataStage.VSIn)

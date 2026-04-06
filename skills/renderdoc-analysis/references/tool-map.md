@@ -43,10 +43,10 @@ Good stopping point:
 Start with:
 
 - `get_draw_packet`
-- `inspect_shader`
 
 Add when needed:
 
+- `inspect_shader` for another stage or fuller binding detail
 - `inspect_texture_usage`
 - `inspect_mesh`
 
@@ -54,6 +54,27 @@ Good stopping point:
 
 - you can name the dominant stage and entry point
 - you can cite the important binding counts or key sampled resources
+
+## `reverse-action`
+
+Start with:
+
+- `get_draw_packet`
+- `inspect_mesh` for draw events
+- `inspect_shader` for `vs + ps` on draw events, or `cs` on dispatch events
+
+Add when needed:
+
+- `get_pass_packet` for broader pass role or sibling evidence beyond draw-packet context
+- `get_shader_disasm` for motif recognition in the decisive stage
+- `inspect_texture_usage` for the few outputs or disputed inputs that matter downstream
+
+Good stopping point:
+
+- you can list the important `t#`, `u#`, `cb#`, and `vb/ib` inputs
+- you can explain the main shader code ranges and what each range does
+- you can describe `o#` or UAV outputs with evidence tied to code or downstream consumers
+- you can separate hard evidence from inferred material or effect role
 
 ## `build-frame-report`
 
