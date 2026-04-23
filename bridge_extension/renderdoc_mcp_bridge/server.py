@@ -17,6 +17,8 @@ except ImportError:  # pragma: no cover - exercised in RenderDuck without PySide
 IPC_DIR = os.path.join(tempfile.gettempdir(), "renderdoc_mcp_bridge")
 REQUESTS_DIR = os.path.join(IPC_DIR, "requests")
 RESPONSES_DIR = os.path.join(IPC_DIR, "responses")
+REQUEST_FILE = os.path.join(IPC_DIR, "request.json")
+RESPONSE_FILE = os.path.join(IPC_DIR, "response.json")
 LOCK_FILE = os.path.join(IPC_DIR, "lock")
 HEARTBEAT_FILE = os.path.join(IPC_DIR, "heartbeat")
 
@@ -66,7 +68,7 @@ class BridgeServer(QObject):
             self._stop_event.wait(0.1)
 
     def _cleanup(self):
-        for path in (LOCK_FILE, HEARTBEAT_FILE):
+        for path in (REQUEST_FILE, RESPONSE_FILE, LOCK_FILE, HEARTBEAT_FILE):
             try:
                 if os.path.exists(path):
                     os.remove(path)
@@ -75,33 +77,10 @@ class BridgeServer(QObject):
         for directory in (REQUESTS_DIR, RESPONSES_DIR):
             try:
                 for name in os.listdir(directory):
-                    path = os.path.join(directory, name)
-                    if os.path.isfile(path):
-                        os.remove(path)
+                    if name.endswith(".json"):
+                        os.remove(os.path.join(directory, name))
             except OSError:
                 pass
-
-    @staticmethod
-    def _write_json_atomic(path, payload):
-        temp_path = "{}.{}.tmp".format(path, uuid.uuid4().hex)
-        with open(temp_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False)
-        os.replace(temp_path, path)
-
-    @staticmethod
-    def _next_request_file():
-        try:
-            items = [
-                os.path.join(REQUESTS_DIR, name)
-                for name in os.listdir(REQUESTS_DIR)
-                if name.endswith(".json")
-            ]
-        except OSError:
-            return None
-        if not items:
-            return None
-        items.sort(key=lambda path: os.path.getmtime(path))
-        return items[0]
 
     def _poll(self):
         if not self._running:
@@ -111,33 +90,56 @@ class BridgeServer(QObject):
                 handle.write(str(time.time()))
         except OSError:
             pass
-        request_file = self._next_request_file()
-        if request_file is None or os.path.exists(LOCK_FILE):
-            return
-
         try:
-            with open(request_file, "r", encoding="utf-8") as handle:
-                request = json.load(handle)
-            os.remove(request_file)
-
-            try:
-                response = self.handler.handle(request)
-            except Exception as exc:  # pragma: no cover - runtime safety
-                traceback.print_exc()
-                response = {
-                    "id": request.get("id"),
-                    "error": {
-                        "code": "internal_error",
-                        "message": str(exc),
-                    },
-                }
-
-            response_id = request.get("id")
-            if response_id:
-                response_file = os.path.join(RESPONSES_DIR, "{}.json".format(response_id))
-            else:
-                response_file = os.path.join(RESPONSES_DIR, "unknown.json")
-
-            self._write_json_atomic(response_file, response)
+            request_paths = self._modern_request_paths()
+            if request_paths:
+                self._handle_request_file(request_paths[0], modern=True)
+                return
+            if os.path.exists(REQUEST_FILE) and not os.path.exists(LOCK_FILE):
+                self._handle_request_file(REQUEST_FILE, modern=False)
         except Exception:  # pragma: no cover - runtime safety
             traceback.print_exc()
+
+    def _modern_request_paths(self):
+        try:
+            paths = [
+                os.path.join(REQUESTS_DIR, name)
+                for name in os.listdir(REQUESTS_DIR)
+                if name.endswith(".json")
+            ]
+        except OSError:
+            return []
+        return sorted(paths, key=lambda item: os.path.getmtime(item))
+
+    def _handle_request_file(self, request_path, modern):
+        with open(request_path, "r", encoding="utf-8") as handle:
+            request = json.load(handle)
+        os.remove(request_path)
+
+        try:
+            response = self.handler.handle(request)
+        except Exception as exc:  # pragma: no cover - runtime safety
+            traceback.print_exc()
+            response = {
+                "id": request.get("id"),
+                "error": {
+                    "code": "internal_error",
+                    "message": str(exc),
+                },
+            }
+
+        response_path = RESPONSE_FILE
+        if modern:
+            response_id = request.get("id") or "response"
+            response_path = os.path.join(RESPONSES_DIR, "{}.json".format(response_id))
+
+        self._atomic_write_json(response_path, response)
+
+    @staticmethod
+    def _atomic_write_json(path, payload):
+        tmp_path = "{}.{}.tmp".format(path, uuid.uuid4().hex)
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, default=str)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)

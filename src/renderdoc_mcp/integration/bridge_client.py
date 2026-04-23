@@ -24,6 +24,9 @@ class LiveBridgeClient:
         self.ipc_dir = Path(tempfile.gettempdir()) / "renderdoc_mcp_bridge"
         self.requests_dir = self.ipc_dir / "requests"
         self.responses_dir = self.ipc_dir / "responses"
+        self.request_file = self.ipc_dir / "request.json"
+        self.response_file = self.ipc_dir / "response.json"
+        self.lock_file = self.ipc_dir / "lock"
         self.heartbeat_file = self.ipc_dir / "heartbeat"
 
     def available(self) -> bool:
@@ -40,22 +43,57 @@ class LiveBridgeClient:
             raise LiveBridgeError("Live qrenderdoc bridge is not available")
 
         request_id = str(uuid.uuid4())
-        request_file = self._request_file(request_id)
-        response_file = self._response_file(request_id)
-
         payload = {
             "id": request_id,
             "method": method,
             "params": params or {},
         }
 
-        self._write_json_atomic(request_file, payload)
+        if self._modern_ipc_available():
+            return self._call_modern(request_id, payload)
+        return self._call_legacy(payload)
+
+    def _modern_ipc_available(self) -> bool:
+        return self.requests_dir.exists() and self.responses_dir.exists()
+
+    def _call_modern(self, request_id: str, payload: dict[str, Any]) -> Any:
+        request_file = self.requests_dir / f"{request_id}.json"
+        response_file = self.responses_dir / f"{request_id}.json"
+
+        self._safe_remove(response_file)
+        self._atomic_write_json(request_file, payload)
 
         start = time.time()
         while time.time() - start < self.timeout:
             if response_file.exists():
-                raw = json.loads(response_file.read_text(encoding="utf-8"))
+                raw = self._read_json_retry(response_file)
                 self._safe_remove(response_file)
+                if "error" in raw:
+                    err = raw["error"]
+                    raise LiveBridgeError("{}: {}".format(err.get("code"), err.get("message")))
+                return raw.get("result")
+            time.sleep(0.1)
+
+        self._safe_remove(request_file)
+        raise LiveBridgeError("Timed out waiting for live bridge response")
+
+    def _call_legacy(self, payload: dict[str, Any]) -> Any:
+        self._safe_remove(self.response_file)
+
+        self._acquire_write_slot()
+        try:
+            self._atomic_write_json(self.request_file, payload)
+        finally:
+            self._safe_remove(self.lock_file)
+
+        start = time.time()
+        while time.time() - start < self.timeout:
+            if self.response_file.exists():
+                raw = self._read_json_retry(self.response_file)
+                self._safe_remove(self.response_file)
+                if raw.get("id") not in (None, payload["id"]):
+                    time.sleep(0.05)
+                    continue
                 if "error" in raw:
                     err = raw["error"]
                     raise LiveBridgeError("{}: {}".format(err.get("code"), err.get("message")))
@@ -64,19 +102,6 @@ class LiveBridgeClient:
 
         raise LiveBridgeError("Timed out waiting for live bridge response")
 
-    def _request_file(self, request_id: str) -> Path:
-        return self.requests_dir / f"{request_id}.json"
-
-    def _response_file(self, request_id: str) -> Path:
-        return self.responses_dir / f"{request_id}.json"
-
-    @staticmethod
-    def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
-        temp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        os.replace(temp_path, path)
-
     @staticmethod
     def _safe_remove(path: Path) -> None:
         try:
@@ -84,3 +109,22 @@ class LiveBridgeClient:
                 path.unlink()
         except OSError:
             pass
+
+    @staticmethod
+    def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+        tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp_path.replace(path)
+
+    @staticmethod
+    def _read_json_retry(path: Path) -> Any:
+        last_error: json.JSONDecodeError | None = None
+        for _ in range(5):
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                time.sleep(0.05)
+        if last_error is not None:
+            raise last_error
+        return json.loads(path.read_text(encoding="utf-8"))

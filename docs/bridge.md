@@ -20,6 +20,10 @@ Reason:
 
 - `ping`
 - `get_capture_status`
+- `open_capture`
+- `find_latest_capture`
+- `load_latest_capture`
+- `wait_for_new_capture`
 - `find_events`
 
 ## Manual Validation Path

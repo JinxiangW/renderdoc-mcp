@@ -7,22 +7,14 @@ import json
 import sys
 from typing import Any, Callable
 
+from renderdoc_mcp.capture_hints import attach_capture_hints, load_capture_hints
+from renderdoc_mcp.context_metadata import compare_capture_contexts, load_capture_context
 from renderdoc_mcp.integration import LiveBridgeClient
 
 from .app import LIVE_BRIDGE_TOOLS, OFFLINE_BOOTSTRAP_TOOLS
 from .offline_bootstrap import OfflineBootstrapTools
 
 ToolHandler = Callable[[dict[str, Any]], Any]
-
-
-def _error_envelope(code: str, msg: str) -> dict[str, Any]:
-    return {
-        "ok": False,
-        "mode": "summary",
-        "data": None,
-        "err": {"code": code, "msg": msg},
-        "meta": {"cap": None, "truncated": False},
-    }
 
 
 class OfflineToolRegistry:
@@ -32,8 +24,18 @@ class OfflineToolRegistry:
         self.tools = tools or OfflineBootstrapTools()
         self.handlers: dict[str, ToolHandler] = {
             "get_capture_status": self._get_capture_status,
+            "get_capture_context": self._get_capture_context,
+            "get_capture_hints": self._get_capture_hints,
+            "compare_capture_contexts": self._compare_capture_contexts,
+            "compare_pass_lists": self._compare_pass_lists,
+            "compare_packet_artifacts": self._compare_packet_artifacts,
+            "compare_draw_packets": self._compare_draw_packets,
+            "compare_texture_usage_artifacts": self._compare_texture_usage_artifacts,
             "list_captures": self._list_captures,
             "open_capture": self._open_capture,
+            "find_latest_capture": self._find_latest_capture,
+            "load_latest_capture": self._load_latest_capture,
+            "wait_for_new_capture": self._wait_for_new_capture,
         }
 
     def invoke(self, method: str, params: dict[str, Any] | None = None) -> Any:
@@ -41,8 +43,61 @@ class OfflineToolRegistry:
             raise KeyError(f"Unknown tool: {method}")
         return self.handlers[method](params or {})
 
-    def _get_capture_status(self, _: dict[str, Any]) -> Any:
-        return self.tools.get_capture_status()
+    def _get_capture_status(self, params: dict[str, Any]) -> Any:
+        directory = params.get("directory") or params.get("root")
+        return self.tools.get_capture_status(str(directory) if directory else None)
+
+    def _get_capture_context(self, params: dict[str, Any]) -> Any:
+        path = params.get("path")
+        sidecar = params.get("sidecar")
+        return self.tools.get_capture_context(str(path) if path else None, str(sidecar) if sidecar else None)
+
+    def _get_capture_hints(self, params: dict[str, Any]) -> Any:
+        path = params.get("path")
+        sidecar = params.get("sidecar")
+        return self.tools.get_capture_hints(str(path) if path else None, str(sidecar) if sidecar else None)
+
+    def _compare_capture_contexts(self, params: dict[str, Any]) -> Any:
+        path_a = params.get("path_a")
+        path_b = params.get("path_b")
+        if not path_a or not path_b:
+            raise ValueError("path_a and path_b are required")
+        sidecar_a = params.get("sidecar_a")
+        sidecar_b = params.get("sidecar_b")
+        return self.tools.compare_capture_contexts(
+            str(path_a),
+            str(path_b),
+            str(sidecar_a) if sidecar_a else None,
+            str(sidecar_b) if sidecar_b else None,
+        )
+
+    def _compare_pass_lists(self, params: dict[str, Any]) -> Any:
+        file_a = params.get("file_a")
+        file_b = params.get("file_b")
+        if not file_a or not file_b:
+            raise ValueError("file_a and file_b are required")
+        return self.tools.compare_pass_lists(str(file_a), str(file_b))
+
+    def _compare_packet_artifacts(self, params: dict[str, Any]) -> Any:
+        file_a = params.get("file_a")
+        file_b = params.get("file_b")
+        if not file_a or not file_b:
+            raise ValueError("file_a and file_b are required")
+        return self.tools.compare_packet_artifacts(str(file_a), str(file_b))
+
+    def _compare_draw_packets(self, params: dict[str, Any]) -> Any:
+        file_a = params.get("file_a")
+        file_b = params.get("file_b")
+        if not file_a or not file_b:
+            raise ValueError("file_a and file_b are required")
+        return self.tools.compare_draw_packets(str(file_a), str(file_b))
+
+    def _compare_texture_usage_artifacts(self, params: dict[str, Any]) -> Any:
+        file_a = params.get("file_a")
+        file_b = params.get("file_b")
+        if not file_a or not file_b:
+            raise ValueError("file_a and file_b are required")
+        return self.tools.compare_texture_usage_artifacts(str(file_a), str(file_b))
 
     def _list_captures(self, params: dict[str, Any]) -> Any:
         root = params.get("root")
@@ -57,6 +112,30 @@ class OfflineToolRegistry:
             raise ValueError("path is required")
         return self.tools.open_capture(str(path))
 
+    def _find_latest_capture(self, params: dict[str, Any]) -> Any:
+        directory = params.get("directory") or params.get("root")
+        if not directory:
+            raise ValueError("directory is required")
+        return self.tools.find_latest_capture(str(directory), bool(params.get("recursive", True)))
+
+    def _load_latest_capture(self, params: dict[str, Any]) -> Any:
+        directory = params.get("directory") or params.get("root")
+        if not directory:
+            raise ValueError("directory is required")
+        return self.tools.load_latest_capture(str(directory), bool(params.get("recursive", True)))
+
+    def _wait_for_new_capture(self, params: dict[str, Any]) -> Any:
+        directory = params.get("directory") or params.get("root")
+        if not directory:
+            raise ValueError("directory is required")
+        return self.tools.wait_for_new_capture(
+            str(directory),
+            str(params["previous_path"]) if params.get("previous_path") else None,
+            float(params.get("timeout", 30.0) or 30.0),
+            float(params.get("interval", 0.5) or 0.5),
+            bool(params.get("recursive", True)),
+        )
+
 
 class LiveToolRegistry:
     """Registry for live qrenderdoc bridge tools."""
@@ -65,6 +144,13 @@ class LiveToolRegistry:
         self.client = client or LiveBridgeClient()
         self.handlers: dict[str, ToolHandler] = {
             "get_capture_status": self._get_capture_status,
+            "open_capture": self._open_capture,
+            "find_latest_capture": self._find_latest_capture,
+            "load_latest_capture": self._load_latest_capture,
+            "wait_for_new_capture": self._wait_for_new_capture,
+            "get_capture_context": self._get_capture_context,
+            "get_capture_hints": self._get_capture_hints,
+            "compare_capture_contexts": self._compare_capture_contexts,
             "find_events": self._find_events,
             "list_passes": self._list_passes,
             "get_frame_packet": self._get_frame_packet,
@@ -77,6 +163,8 @@ class LiveToolRegistry:
             "inspect_cbuffer_values": self._inspect_cbuffer_values,
             "read_buffer": self._read_buffer,
             "get_shader_disasm": self._get_shader_disasm,
+            "get_shader_source": self._get_shader_source,
+            "get_shader_code": self._get_shader_code,
             "inspect_texture_usage": self._inspect_texture_usage,
             "inspect_mesh": self._inspect_mesh,
         }
@@ -94,8 +182,70 @@ class LiveToolRegistry:
             raise RuntimeError("Live qrenderdoc bridge is not available")
         return self.invoke(method, params or {})
 
-    def _get_capture_status(self, _: dict[str, Any]) -> Any:
-        return self.client.call("get_capture_status")
+    def _get_capture_status(self, params: dict[str, Any]) -> Any:
+        return self.client.call("get_capture_status", params)
+
+    def _open_capture(self, params: dict[str, Any]) -> Any:
+        return self.client.call("open_capture", params)
+
+    def _find_latest_capture(self, params: dict[str, Any]) -> Any:
+        return self.client.call("find_latest_capture", params)
+
+    def _load_latest_capture(self, params: dict[str, Any]) -> Any:
+        return self.client.call("load_latest_capture", params)
+
+    def _wait_for_new_capture(self, params: dict[str, Any]) -> Any:
+        return self.client.call("wait_for_new_capture", params)
+
+    def _get_capture_context(self, params: dict[str, Any]) -> Any:
+        explicit_path = params.get("path")
+        sidecar = params.get("sidecar")
+        if explicit_path:
+            return load_capture_context(str(explicit_path), sidecar_path=str(sidecar) if sidecar else None)
+
+        status = self.client.call("get_capture_status")
+        if not status.get("ok"):
+            return status
+        data = status.get("data") or {}
+        if not data.get("loaded"):
+            return _error_envelope("capture_not_loaded", "No capture loaded", cap="active")
+        return load_capture_context(
+            str(data.get("path")),
+            cap=str(data.get("cap")) if data.get("cap") is not None else "active",
+            sidecar_path=str(sidecar) if sidecar else None,
+        )
+
+    def _get_capture_hints(self, params: dict[str, Any]) -> Any:
+        explicit_path = params.get("path")
+        sidecar = params.get("sidecar")
+        if explicit_path:
+            return load_capture_hints(str(explicit_path), sidecar_path=str(sidecar) if sidecar else None)
+
+        status = self.client.call("get_capture_status")
+        if not status.get("ok"):
+            return status
+        data = status.get("data") or {}
+        if not data.get("loaded"):
+            return _error_envelope("capture_not_loaded", "No capture loaded", cap="active")
+        return load_capture_hints(
+            str(data.get("path")),
+            cap=str(data.get("cap")) if data.get("cap") is not None else "active",
+            sidecar_path=str(sidecar) if sidecar else None,
+        )
+
+    def _compare_capture_contexts(self, params: dict[str, Any]) -> Any:
+        path_a = params.get("path_a")
+        path_b = params.get("path_b")
+        if not path_a or not path_b:
+            raise ValueError("path_a and path_b are required")
+        sidecar_a = params.get("sidecar_a")
+        sidecar_b = params.get("sidecar_b")
+        return compare_capture_contexts(
+            str(path_a),
+            str(path_b),
+            str(sidecar_a) if sidecar_a else None,
+            str(sidecar_b) if sidecar_b else None,
+        )
 
     def _find_events(self, params: dict[str, Any]) -> Any:
         return self.client.call("find_events", params)
@@ -118,6 +268,12 @@ class LiveToolRegistry:
     def _get_shader_disasm(self, params: dict[str, Any]) -> Any:
         return self.client.call("get_shader_disasm", params)
 
+    def _get_shader_source(self, params: dict[str, Any]) -> Any:
+        return self.client.call("get_shader_source", params)
+
+    def _get_shader_code(self, params: dict[str, Any]) -> Any:
+        return self.client.call("get_shader_code", params)
+
     def _inspect_texture_usage(self, params: dict[str, Any]) -> Any:
         return self.client.call("inspect_texture_usage", params)
 
@@ -125,13 +281,73 @@ class LiveToolRegistry:
         return self.client.call("inspect_mesh", params)
 
     def _get_frame_packet(self, params: dict[str, Any]) -> Any:
-        return self.client.call("get_frame_packet", params)
+        include_hints = bool(params.get("include_hints"))
+        sidecar = params.get("sidecar")
+        call_params = dict(params)
+        call_params.pop("include_hints", None)
+        call_params.pop("sidecar", None)
+        result = self.client.call("get_frame_packet", call_params)
+        if not include_hints or not result.get("ok"):
+            return result
+        status = self.client.call("get_capture_status")
+        if not status.get("ok"):
+            return result
+        data = status.get("data") or {}
+        if not data.get("loaded") or not data.get("path"):
+            return result
+        return attach_capture_hints(
+            result,
+            str(data.get("path")),
+            cap=str(data.get("cap")) if data.get("cap") is not None else "active",
+            sidecar_path=str(sidecar) if sidecar else None,
+            packet_kind="frame",
+        )
 
     def _get_pass_packet(self, params: dict[str, Any]) -> Any:
-        return self.client.call("get_pass_packet", params)
+        include_hints = bool(params.get("include_hints"))
+        sidecar = params.get("sidecar")
+        call_params = dict(params)
+        call_params.pop("include_hints", None)
+        call_params.pop("sidecar", None)
+        result = self.client.call("get_pass_packet", call_params)
+        if not include_hints or not result.get("ok"):
+            return result
+        status = self.client.call("get_capture_status")
+        if not status.get("ok"):
+            return result
+        data = status.get("data") or {}
+        if not data.get("loaded") or not data.get("path"):
+            return result
+        return attach_capture_hints(
+            result,
+            str(data.get("path")),
+            cap=str(data.get("cap")) if data.get("cap") is not None else "active",
+            sidecar_path=str(sidecar) if sidecar else None,
+            packet_kind="pass",
+        )
 
     def _get_draw_packet(self, params: dict[str, Any]) -> Any:
-        return self.client.call("get_draw_packet", params)
+        include_hints = bool(params.get("include_hints"))
+        sidecar = params.get("sidecar")
+        call_params = dict(params)
+        call_params.pop("include_hints", None)
+        call_params.pop("sidecar", None)
+        result = self.client.call("get_draw_packet", call_params)
+        if not include_hints or not result.get("ok"):
+            return result
+        status = self.client.call("get_capture_status")
+        if not status.get("ok"):
+            return result
+        data = status.get("data") or {}
+        if not data.get("loaded") or not data.get("path"):
+            return result
+        return attach_capture_hints(
+            result,
+            str(data.get("path")),
+            cap=str(data.get("cap")) if data.get("cap") is not None else "active",
+            sidecar_path=str(sidecar) if sidecar else None,
+            packet_kind="draw",
+        )
 
     def _debug_save_overlay(self, params: dict[str, Any]) -> Any:
         return self.client.call("debug_save_overlay", params)
@@ -155,6 +371,22 @@ def _tool_descriptions(*spec_groups) -> dict[str, str]:
     return descriptions
 
 
+def _error_envelope(code: str, msg: str, cap: str | None = None) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "mode": "summary",
+        "data": None,
+        "err": {
+            "code": code,
+            "msg": msg,
+        },
+        "meta": {
+            "cap": cap,
+            "truncated": False,
+        },
+    }
+
+
 def maybe_create_fastmcp() -> Any | None:
     """Create a FastMCP app if the dependency is available."""
 
@@ -173,10 +405,107 @@ def maybe_create_fastmcp() -> Any | None:
     # arguments behind dynamic registration.
 
     @app.tool(description=descriptions["get_capture_status"])
-    def get_capture_status() -> Any:
+    def get_capture_status(directory: str | None = None) -> Any:
         if live.available():
-            return live.invoke("get_capture_status")
-        return offline.invoke("get_capture_status")
+            return live.invoke("get_capture_status", {"directory": directory})
+        return offline.invoke("get_capture_status", {"directory": directory})
+
+    @app.tool(description=descriptions["get_capture_context"])
+    def get_capture_context(
+        path: str | None = None,
+        sidecar: str | None = None,
+    ) -> Any:
+        if live.available():
+            return live.invoke("get_capture_context", {"path": path, "sidecar": sidecar})
+        return offline.invoke("get_capture_context", {"path": path, "sidecar": sidecar})
+
+    @app.tool(description=descriptions["get_capture_hints"])
+    def get_capture_hints(
+        path: str | None = None,
+        sidecar: str | None = None,
+    ) -> Any:
+        if live.available():
+            return live.invoke("get_capture_hints", {"path": path, "sidecar": sidecar})
+        return offline.invoke("get_capture_hints", {"path": path, "sidecar": sidecar})
+
+    @app.tool(description=descriptions["compare_capture_contexts"])
+    def compare_capture_contexts(
+        path_a: str,
+        path_b: str,
+        sidecar_a: str | None = None,
+        sidecar_b: str | None = None,
+    ) -> Any:
+        if live.available():
+            return live.invoke(
+                "compare_capture_contexts",
+                {
+                    "path_a": path_a,
+                    "path_b": path_b,
+                    "sidecar_a": sidecar_a,
+                    "sidecar_b": sidecar_b,
+                },
+            )
+        return offline.invoke(
+            "compare_capture_contexts",
+            {
+                "path_a": path_a,
+                "path_b": path_b,
+                "sidecar_a": sidecar_a,
+                "sidecar_b": sidecar_b,
+            },
+        )
+
+    @app.tool(description=descriptions["compare_pass_lists"])
+    def compare_pass_lists(
+        file_a: str,
+        file_b: str,
+    ) -> Any:
+        return offline.invoke(
+            "compare_pass_lists",
+            {
+                "file_a": file_a,
+                "file_b": file_b,
+            },
+        )
+
+    @app.tool(description=descriptions["compare_packet_artifacts"])
+    def compare_packet_artifacts(
+        file_a: str,
+        file_b: str,
+    ) -> Any:
+        return offline.invoke(
+            "compare_packet_artifacts",
+            {
+                "file_a": file_a,
+                "file_b": file_b,
+            },
+        )
+
+    @app.tool(description=descriptions["compare_draw_packets"])
+    def compare_draw_packets(
+        file_a: str,
+        file_b: str,
+    ) -> Any:
+        return offline.invoke(
+            "compare_draw_packets",
+            {
+                "file_a": file_a,
+                "file_b": file_b,
+            },
+        )
+
+    @app.tool(description=descriptions["compare_texture_usage_artifacts"])
+    def compare_texture_usage_artifacts(
+        file_a: str,
+        file_b: str,
+    ) -> Any:
+        return offline.invoke(
+            "compare_texture_usage_artifacts",
+            {
+                "file_a": file_a,
+                "file_b": file_b,
+            },
+        )
 
     @app.tool(description=descriptions["list_captures"])
     def list_captures(root: str, limit: int = 50) -> Any:
@@ -184,7 +513,42 @@ def maybe_create_fastmcp() -> Any | None:
 
     @app.tool(description=descriptions["open_capture"])
     def open_capture(path: str) -> Any:
+        if live.available():
+            return live.invoke("open_capture", {"path": path})
         return offline.invoke("open_capture", {"path": path})
+
+    @app.tool(description=descriptions["find_latest_capture"])
+    def find_latest_capture(directory: str, recursive: bool = True) -> Any:
+        params = {"directory": directory, "recursive": recursive}
+        if live.available():
+            return live.invoke("find_latest_capture", params)
+        return offline.invoke("find_latest_capture", params)
+
+    @app.tool(description=descriptions["load_latest_capture"])
+    def load_latest_capture(directory: str, recursive: bool = True) -> Any:
+        params = {"directory": directory, "recursive": recursive}
+        if live.available():
+            return live.invoke("load_latest_capture", params)
+        return offline.invoke("load_latest_capture", params)
+
+    @app.tool(description=descriptions["wait_for_new_capture"])
+    def wait_for_new_capture(
+        directory: str,
+        previous_path: str | None = None,
+        timeout: float = 30.0,
+        interval: float = 0.5,
+        recursive: bool = True,
+    ) -> Any:
+        params = {
+            "directory": directory,
+            "previous_path": previous_path,
+            "timeout": timeout,
+            "interval": interval,
+            "recursive": recursive,
+        }
+        if live.available():
+            return live.invoke("wait_for_new_capture", params)
+        return offline.invoke("wait_for_new_capture", params)
 
     @app.tool(description=descriptions["find_events"])
     def find_events(
@@ -253,6 +617,8 @@ def maybe_create_fastmcp() -> Any | None:
         rid: str,
         eid: int | None = None,
         dest: str = "PNG",
+        format: str | None = None,
+        overwrite: bool = False,
     ) -> Any:
         return live.require(
             "debug_save_texture",
@@ -260,6 +626,8 @@ def maybe_create_fastmcp() -> Any | None:
                 "rid": rid,
                 "eid": eid,
                 "dest": dest,
+                "format": format,
+                "overwrite": overwrite,
             },
         )
 
@@ -331,11 +699,55 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
+    @app.tool(description=descriptions["get_shader_source"])
+    def get_shader_source(
+        eid: int,
+        stage: str,
+        file: str | None = None,
+        file_index: int = 0,
+        offset: int = 0,
+        max_lines: int = 400,
+    ) -> Any:
+        return live.require(
+            "get_shader_source",
+            {
+                "eid": eid,
+                "stage": stage,
+                "file": file,
+                "file_index": file_index,
+                "offset": offset,
+                "max_lines": max_lines,
+            },
+        )
+
+    @app.tool(description=descriptions["get_shader_code"])
+    def get_shader_code(
+        eid: int,
+        stage: str,
+        file: str | None = None,
+        file_index: int = 0,
+        offset: int = 0,
+        max_lines: int = 400,
+    ) -> Any:
+        return live.require(
+            "get_shader_code",
+            {
+                "eid": eid,
+                "stage": stage,
+                "file": file,
+                "file_index": file_index,
+                "offset": offset,
+                "max_lines": max_lines,
+            },
+        )
+
     @app.tool(description=descriptions["inspect_texture_usage"])
     def inspect_texture_usage(
         rid: str | None = None,
         name: str | None = None,
         limit: int = 10,
+        eid_min: int | None = None,
+        eid_max: int | None = None,
     ) -> Any:
         return live.require(
             "inspect_texture_usage",
@@ -343,6 +755,8 @@ def maybe_create_fastmcp() -> Any | None:
                 "rid": rid,
                 "name": name,
                 "limit": limit,
+                "eid_min": eid_min,
+                "eid_max": eid_max,
             },
         )
 
@@ -358,20 +772,59 @@ def maybe_create_fastmcp() -> Any | None:
         )
 
     @app.tool(description=descriptions["get_frame_packet"])
-    def get_frame_packet(limit: int = 20) -> Any:
-        return live.require("get_frame_packet", {"limit": limit})
+    def get_frame_packet(
+        limit: int = 20,
+        include_hints: bool = False,
+        sidecar: str | None = None,
+        pass_contains: str | None = None,
+        draw_contains: str | None = None,
+        only_writes_to_resource: str | None = None,
+        only_reads_resource: str | None = None,
+        exclude_editor_only: bool = False,
+    ) -> Any:
+        return live.require(
+            "get_frame_packet",
+            {
+                "limit": limit,
+                "include_hints": include_hints,
+                "sidecar": sidecar,
+                "pass_contains": pass_contains,
+                "draw_contains": draw_contains,
+                "only_writes_to_resource": only_writes_to_resource,
+                "only_reads_resource": only_reads_resource,
+                "exclude_editor_only": exclude_editor_only,
+            },
+        )
 
     @app.tool(description=descriptions["get_pass_packet"])
     def get_pass_packet(
         marker: str | None = None,
         eid: int | None = None,
         limit: int = 8,
+        include_hints: bool = False,
+        sidecar: str | None = None,
     ) -> Any:
-        return live.require("get_pass_packet", {"marker": marker, "eid": eid, "limit": limit})
+        return live.require(
+            "get_pass_packet",
+            {
+                "marker": marker,
+                "eid": eid,
+                "limit": limit,
+                "include_hints": include_hints,
+                "sidecar": sidecar,
+            },
+        )
 
     @app.tool(description=descriptions["get_draw_packet"])
-    def get_draw_packet(eid: int) -> Any:
-        return live.require("get_draw_packet", {"eid": eid})
+    def get_draw_packet(
+        eid: int,
+        include_hints: bool = False,
+        sidecar: str | None = None,
+    ) -> Any:
+        return live.require(
+            "get_draw_packet",
+            {"eid": eid, "include_hints": include_hints, "sidecar": sidecar},
+        )
 
     return app
 
@@ -383,15 +836,20 @@ def run_local_json(method: str, params: dict[str, Any]) -> int:
         if method in live.handlers:
             if live.available():
                 result = live.invoke(method, params)
+            elif method in offline.handlers:
+                result = offline.invoke(method, params)
             else:
                 result = _error_envelope(
                     "live_bridge_unavailable",
                     "Live qrenderdoc bridge is not available",
+                    cap="active",
                 )
         elif method in offline.handlers:
             result = offline.invoke(method, params)
         else:
-            result = _error_envelope("method_not_found", f"Unknown tool: {method}")
+            result = _error_envelope("unknown_tool", f"Unknown tool: {method}")
+    except ValueError as exc:
+        result = _error_envelope("bad_request", str(exc))
     except Exception as exc:
         result = _error_envelope("request_failed", str(exc))
     print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -418,8 +876,9 @@ def main() -> int:
 
     if args.cmd == "run-local-json":
         if args.params_file:
-            params = json.loads(open(args.params_file, "r", encoding="utf-8-sig").read())
-            params = params.get("params", params)
+            with open(args.params_file, "r", encoding="utf-8-sig") as handle:
+                params = json.loads(handle.read())
+                params = params.get("params", params)
         else:
             params = json.loads(args.params)
         return run_local_json(args.method, params)
