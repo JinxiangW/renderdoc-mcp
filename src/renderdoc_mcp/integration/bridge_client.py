@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -21,9 +22,8 @@ class LiveBridgeClient:
     def __init__(self, timeout: float = 20.0) -> None:
         self.timeout = timeout
         self.ipc_dir = Path(tempfile.gettempdir()) / "renderdoc_mcp_bridge"
-        self.request_file = self.ipc_dir / "request.json"
-        self.response_file = self.ipc_dir / "response.json"
-        self.lock_file = self.ipc_dir / "lock"
+        self.requests_dir = self.ipc_dir / "requests"
+        self.responses_dir = self.ipc_dir / "responses"
         self.heartbeat_file = self.ipc_dir / "heartbeat"
 
     def available(self) -> bool:
@@ -39,23 +39,23 @@ class LiveBridgeClient:
         if not self.available():
             raise LiveBridgeError("Live qrenderdoc bridge is not available")
 
-        self._safe_remove(self.response_file)
+        request_id = str(uuid.uuid4())
+        request_file = self._request_file(request_id)
+        response_file = self._response_file(request_id)
 
         payload = {
-            "id": str(uuid.uuid4()),
+            "id": request_id,
             "method": method,
             "params": params or {},
         }
 
-        self._acquire_write_slot()
-        self.request_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        self._safe_remove(self.lock_file)
+        self._write_json_atomic(request_file, payload)
 
         start = time.time()
         while time.time() - start < self.timeout:
-            if self.response_file.exists():
-                raw = json.loads(self.response_file.read_text(encoding="utf-8"))
-                self._safe_remove(self.response_file)
+            if response_file.exists():
+                raw = json.loads(response_file.read_text(encoding="utf-8"))
+                self._safe_remove(response_file)
                 if "error" in raw:
                     err = raw["error"]
                     raise LiveBridgeError("{}: {}".format(err.get("code"), err.get("message")))
@@ -64,19 +64,18 @@ class LiveBridgeClient:
 
         raise LiveBridgeError("Timed out waiting for live bridge response")
 
-    def _acquire_write_slot(self) -> None:
-        start = time.time()
-        while time.time() - start < self.timeout:
-            if not self.lock_file.exists():
-                try:
-                    self.lock_file.write_text("lock", encoding="utf-8")
-                    return
-                except OSError:
-                    time.sleep(0.05)
-                    continue
-            time.sleep(0.05)
+    def _request_file(self, request_id: str) -> Path:
+        return self.requests_dir / f"{request_id}.json"
 
-        raise LiveBridgeError("Timed out waiting to acquire bridge write slot")
+    def _response_file(self, request_id: str) -> Path:
+        return self.responses_dir / f"{request_id}.json"
+
+    @staticmethod
+    def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+        temp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp_path, path)
 
     @staticmethod
     def _safe_remove(path: Path) -> None:

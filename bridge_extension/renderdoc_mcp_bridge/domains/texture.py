@@ -202,7 +202,8 @@ class TextureServiceMixin:
         if name_filter:
             name_l = str(name_filter).lower()
             for tex in textures:
-                if name_l in str(tex.resourceId).lower():
+                resource_name = controller.GetResourceName(tex.resourceId) or ""
+                if name_l in resource_name.lower():
                     return tex
         if not rid and not name_filter:
             return None

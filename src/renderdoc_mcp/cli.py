@@ -48,7 +48,7 @@ def main() -> int:
         res = adapter.get_capture_status()
 
     _print(res)
-    return 0 if res.ok else 1
+    return 0 if res.get("ok") else 1
 
 
 if __name__ == "__main__":

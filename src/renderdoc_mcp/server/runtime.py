@@ -15,6 +15,16 @@ from .offline_bootstrap import OfflineBootstrapTools
 ToolHandler = Callable[[dict[str, Any]], Any]
 
 
+def _error_envelope(code: str, msg: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "mode": "summary",
+        "data": None,
+        "err": {"code": code, "msg": msg},
+        "meta": {"cap": None, "truncated": False},
+    }
+
+
 class OfflineToolRegistry:
     """Registry for the implemented offline bootstrap tools."""
 
@@ -323,12 +333,23 @@ def maybe_create_fastmcp() -> Any | None:
 def run_local_json(method: str, params: dict[str, Any]) -> int:
     live = LiveToolRegistry()
     offline = OfflineToolRegistry()
-    if method in live.handlers and live.available():
-        result = live.invoke(method, params)
-    else:
-        result = offline.invoke(method, params)
+    try:
+        if method in live.handlers:
+            if live.available():
+                result = live.invoke(method, params)
+            else:
+                result = _error_envelope(
+                    "live_bridge_unavailable",
+                    "Live qrenderdoc bridge is not available",
+                )
+        elif method in offline.handlers:
+            result = offline.invoke(method, params)
+        else:
+            result = _error_envelope("method_not_found", f"Unknown tool: {method}")
+    except Exception as exc:
+        result = _error_envelope("request_failed", str(exc))
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if result.get("ok") else 1
 
 
 def main() -> int:
