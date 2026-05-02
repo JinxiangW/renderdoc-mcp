@@ -23,6 +23,8 @@ class RequestHandler:
             "debug_save_overlay": observe_service.debug_save_overlay,
             "inspect_pipeline_state": observe_service.inspect_pipeline_state,
             "inspect_shader": observe_service.inspect_shader,
+            "inspect_cbuffer_values": observe_service.inspect_cbuffer_values,
+            "read_buffer": observe_service.read_buffer,
             "get_shader_disasm": observe_service.get_shader_disasm,
             "inspect_texture_usage": observe_service.inspect_texture_usage,
             "inspect_mesh": observe_service.inspect_mesh,

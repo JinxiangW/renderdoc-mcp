@@ -28,6 +28,16 @@ V1_SUMMARY_TOOLS: tuple[ToolSpec, ...] = (
         "Return compact read/write usage for a texture.",
     ),
     ToolSpec("inspect_shader", True, "Return compact shader bindings and constants info."),
+    ToolSpec(
+        "inspect_cbuffer_values",
+        True,
+        "Return constant-buffer bindings, ranges, and decoded variable values.",
+    ),
+    ToolSpec(
+        "read_buffer",
+        True,
+        "Read and decode bytes from a live buffer resource.",
+    ),
     ToolSpec("get_shader_disasm", True, "Return shader disassembly text with pagination support."),
     ToolSpec("inspect_mesh", True, "Return compact mesh inspection data."),
 )
@@ -53,6 +63,16 @@ LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
         "inspect_shader",
         True,
         "Return a compact shader summary for one stage at one event from the live capture.",
+    ),
+    ToolSpec(
+        "inspect_cbuffer_values",
+        True,
+        "Return cbuffer binding ranges and actual variable values for one stage/event.",
+    ),
+    ToolSpec(
+        "read_buffer",
+        True,
+        "Read a live buffer range and decode it as raw, float4, uint4, int4, matrix, or structured rows.",
     ),
     ToolSpec(
         "inspect_texture_usage",

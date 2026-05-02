@@ -1,6 +1,7 @@
 """Observe-layer composition for the live bridge."""
 
 from .domains.base import BridgeService
+from .domains.buffer import BufferServiceMixin
 from .domains.capture import CaptureStatusService
 from .domains.export import ExportServiceMixin
 from .domains.mesh import MeshServiceMixin
@@ -16,6 +17,7 @@ class ObserveService(
     EventSearchMixin,
     PacketServiceMixin,
     PipelineStateServiceMixin,
+    BufferServiceMixin,
     ShaderServiceMixin,
     TextureServiceMixin,
     ExportServiceMixin,

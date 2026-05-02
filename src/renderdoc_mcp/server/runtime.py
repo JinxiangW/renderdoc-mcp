@@ -74,6 +74,8 @@ class LiveToolRegistry:
             "debug_save_texture": self._debug_save_texture,
             "inspect_pipeline_state": self._inspect_pipeline_state,
             "inspect_shader": self._inspect_shader,
+            "inspect_cbuffer_values": self._inspect_cbuffer_values,
+            "read_buffer": self._read_buffer,
             "get_shader_disasm": self._get_shader_disasm,
             "inspect_texture_usage": self._inspect_texture_usage,
             "inspect_mesh": self._inspect_mesh,
@@ -106,6 +108,12 @@ class LiveToolRegistry:
 
     def _inspect_shader(self, params: dict[str, Any]) -> Any:
         return self.client.call("inspect_shader", params)
+
+    def _inspect_cbuffer_values(self, params: dict[str, Any]) -> Any:
+        return self.client.call("inspect_cbuffer_values", params)
+
+    def _read_buffer(self, params: dict[str, Any]) -> Any:
+        return self.client.call("read_buffer", params)
 
     def _get_shader_disasm(self, params: dict[str, Any]) -> Any:
         return self.client.call("get_shader_disasm", params)
@@ -265,6 +273,44 @@ def maybe_create_fastmcp() -> Any | None:
             {
                 "eid": eid,
                 "stage": stage,
+            },
+        )
+
+    @app.tool(description=descriptions["inspect_cbuffer_values"])
+    def inspect_cbuffer_values(
+        eid: int,
+        stage: str,
+        slot: int | None = None,
+        raw: bool = False,
+    ) -> Any:
+        return live.require(
+            "inspect_cbuffer_values",
+            {
+                "eid": eid,
+                "stage": stage,
+                "slot": slot,
+                "raw": raw,
+            },
+        )
+
+    @app.tool(description=descriptions["read_buffer"])
+    def read_buffer(
+        rid: str,
+        offset: int,
+        length: int,
+        format: str = "raw",
+        stride: int | None = None,
+        eid: int | None = None,
+    ) -> Any:
+        return live.require(
+            "read_buffer",
+            {
+                "rid": rid,
+                "offset": offset,
+                "length": length,
+                "format": format,
+                "stride": stride,
+                "eid": eid,
             },
         )
 

@@ -239,10 +239,93 @@ Summary output:
 Notes:
 
 - `bindings` carries the stage binding table with actual bound resources when available
+- CBV bindings include `byteOffset`, `byteSize`, `elementByteSize`, and buffer size when RenderDoc exposes descriptor ranges
 - `cbufs.variables` is a preview, not necessarily the full variable list
 - `sig.inputs` and `sig.outputs` are useful for action reverse work and output-write analysis
 
-## 8. `get_shader_disasm`
+## 8. `inspect_cbuffer_values`
+
+Purpose:
+
+- read actual constant-buffer values for one stage at one event
+- expose the bound buffer RID plus byte range, so large ring-buffer bindings are distinguishable
+- fall back to raw rows when reflection names are missing or variable decoding fails
+
+Input:
+
+```json
+{
+  "eid": 4211,
+  "stage": "ps",
+  "slot": 5,
+  "raw": false
+}
+```
+
+Summary output:
+
+```json
+{
+  "eid": 4211,
+  "stage": "ps",
+  "shader": {"name": "BasePassPS", "entry": "main", "sid": "ResourceId::205"},
+  "cbufs": [
+    {
+      "slot": 5,
+      "block_index": 3,
+      "name": "Material",
+      "bound": {
+        "rid": "ResourceId::1194160",
+        "byteOffset": 98304,
+        "byteSize": 208,
+        "bufferSize": 4194304
+      },
+      "variables": [
+        {
+          "name": "_CharacterParams0",
+          "offset": 0,
+          "type": {"type": "Float", "rows": 1, "cols": 4},
+          "value": [1.0, 0.5, 0.0, 1.0]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Notes:
+
+- `slot` filters by fixed cbuffer binding number when reflection provides it; it also accepts the reflection block index as a fallback
+- when `raw=true`, the output also includes raw 16-byte rows decoded as `float4`, `int4`, and `uint4`
+
+## 9. `read_buffer`
+
+Purpose:
+
+- read a byte range from a live buffer resource
+- decode constant buffers, raw buffers, and structured buffers without relying on shader reflection
+
+Input:
+
+```json
+{
+  "rid": "ResourceId::1194160",
+  "offset": 98304,
+  "length": 208,
+  "format": "float4",
+  "stride": null,
+  "eid": 4211
+}
+```
+
+Supported `format` values:
+
+- `raw`: 16-byte rows with hex plus `float4/int4/uint4` interpretations
+- `float4`, `uint4`, `int4`
+- `matrix`, `float4x4`, or `floatMxN` for 1-4 rows/columns
+- `structured`, with `stride`, or `structured:48`
+
+## 10. `get_shader_disasm`
 
 Purpose:
 
@@ -287,7 +370,7 @@ Notes:
 - use `lines` plus `line_start/line_end` when you need code-range references in a reverse-action report
 - `text` remains available for quick scanning or copy/paste into notes
 
-## 9. `inspect_mesh`
+## 11. `inspect_mesh`
 
 Purpose:
 
@@ -342,7 +425,7 @@ Notes:
 - `vbs` and `ib` are the bound vertex/index buffers for action reverse work
 - mesh summaries are still compact; this is not a full vertex-stream dump
 
-## 10. `get_frame_packet`
+## 12. `get_frame_packet`
 
 Purpose:
 
@@ -373,7 +456,7 @@ Summary output:
 }
 ```
 
-## 11. `get_pass_packet`
+## 13. `get_pass_packet`
 
 Purpose:
 
@@ -417,7 +500,7 @@ Summary output:
 }
 ```
 
-## 12. `get_draw_packet`
+## 14. `get_draw_packet`
 
 Purpose:
 
@@ -501,7 +584,7 @@ Notes:
 - use `io.in_tex_meta` and `io.out_*_meta` to judge truncation or partial coverage
 - `context.parent_pass` is the nearest enclosing marker; `context.root_pass` is the outermost enclosing marker in the action path
 
-## 13. `debug_save_overlay`
+## 15. `debug_save_overlay`
 
 Purpose:
 
@@ -519,7 +602,7 @@ Input:
 }
 ```
 
-## 14. `debug_save_texture`
+## 16. `debug_save_texture`
 
 Purpose:
 

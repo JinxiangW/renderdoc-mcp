@@ -33,3 +33,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["err"]["code"], "live_bridge_unavailable")
+
+    def test_live_registry_exposes_buffer_value_tools(self):
+        registry = runtime.LiveToolRegistry(client=object())
+
+        self.assertIn("inspect_cbuffer_values", registry.handlers)
+        self.assertIn("read_buffer", registry.handlers)
