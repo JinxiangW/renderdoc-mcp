@@ -1,0 +1,4 @@
+interface:
+  display_name: "RenderDoc Analysis"
+  short_description: "Analyze RenderDoc evidence from observe-only MCP tools."
+  default_prompt: "Use $renderdoc-analysis to analyze RenderDoc observe packets and produce a concise evidence-backed report."
