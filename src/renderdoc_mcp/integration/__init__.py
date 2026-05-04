@@ -1,7 +1,7 @@
 """RenderDoc integration layer abstractions."""
 
 from .bridge import BridgeRequest, BridgeResponse, RenderDocBridge
-from .bridge_client import LiveBridgeClient, LiveBridgeError
+from .bridge_client import LiveBridgeClient, LiveBridgeError, LiveBridgeInstance
 from .modes import HostMode
 
 __all__ = [
@@ -10,5 +10,6 @@ __all__ = [
     "HostMode",
     "LiveBridgeClient",
     "LiveBridgeError",
+    "LiveBridgeInstance",
     "RenderDocBridge",
 ]

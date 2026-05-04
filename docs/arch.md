@@ -40,12 +40,14 @@ Responsibility:
 - transport requests to the integration host
 - normalize errors
 - manage timeouts and request IDs
+- discover live qrenderdoc bridge instances and route requests by `window_id`
 
 V1 bridge requirements:
 
 - local-only
 - request/response model
 - explicit timeout handling
+- no shared request queue across qrenderdoc windows
 
 Transport decision for V1:
 
@@ -74,6 +76,8 @@ V1 priority:
 
 - active capture already open in `qrenderdoc`
 - best for pass inspection, live debugging, current pipeline state
+- each qrenderdoc window is a separate live bridge target
+- use `list_live_windows` and pass `window_id` when more than one target is active
 
 ### Offline Mode
 
@@ -104,6 +108,7 @@ The V1 observe-only tool set is:
 - `open_capture`
 - `get_capture_status`
 - `list_captures`
+- `list_live_windows`
 - `find_events`
 - `list_passes`
 - `get_frame_packet`

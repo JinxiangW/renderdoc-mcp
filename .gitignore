@@ -11,3 +11,4 @@ build/
 *.log
 .state/
 .tmp_*.json
+.*.out.json

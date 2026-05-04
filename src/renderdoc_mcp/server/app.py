@@ -51,6 +51,7 @@ OFFLINE_BOOTSTRAP_TOOLS: tuple[ToolSpec, ...] = (
 
 
 LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
+    ToolSpec("list_live_windows", True, "List active qrenderdoc bridge windows and their window_id values."),
     ToolSpec("get_capture_status", True, "Return current capture status from the live bridge."),
     ToolSpec("find_events", True, "Find compact event matches in the live capture."),
     ToolSpec("list_passes", True, "List pass markers in the live capture."),

@@ -2,6 +2,15 @@
 
 All tools below default to `mode=summary`.
 
+## Live Window Targeting
+
+Live qrenderdoc tools accept an optional `window_id`.
+
+- Use `list_live_windows` when multiple qrenderdoc windows may be open.
+- Pass the returned `window_id` to every live call that should target that capture.
+- Omit `window_id` only when exactly one live bridge is active.
+- Helper scripts also read `RENDERDOC_MCP_WINDOW_ID`.
+
 ## 1. `open_capture`
 
 Purpose:
@@ -41,7 +50,9 @@ Purpose:
 Input:
 
 ```json
-{}
+{
+  "window_id": "105880-420776f9"
+}
 ```
 
 Summary output:
@@ -52,6 +63,37 @@ Summary output:
   "cap": "active",
   "api": "D3D11",
   "path": "C:/captures/foo.rdc"
+}
+```
+
+## 2a. `list_live_windows`
+
+Purpose:
+
+- enumerate live qrenderdoc bridge windows
+- provide `window_id` values for explicit target selection
+- avoid sending live requests to the wrong capture when several windows are open
+
+Input:
+
+```json
+{}
+```
+
+Summary output:
+
+```json
+{
+  "count": 2,
+  "windows": [
+    {
+      "window_id": "105880-420776f9",
+      "pid": 105880,
+      "loaded": true,
+      "capture_path": "C:/Caps/world/Endfield-frame7146.rdc",
+      "api": "GraphicsAPI.D3D11"
+    }
+  ]
 }
 ```
 

@@ -10,7 +10,7 @@ class _FakeLiveRegistry:
     def __init__(self):
         self.handlers = {"find_events": object()}
 
-    def available(self):
+    def available(self, window_id=None):
         return False
 
 
@@ -39,3 +39,4 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertIn("inspect_cbuffer_values", registry.handlers)
         self.assertIn("read_buffer", registry.handlers)
+        self.assertIn("list_live_windows", registry.handlers)

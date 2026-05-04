@@ -30,6 +30,23 @@ class RequestHandler:
             "inspect_texture_usage": observe_service.inspect_texture_usage,
             "inspect_mesh": observe_service.inspect_mesh,
         }
+        self._capture_service = capture_service
+
+    def describe_instance(self):
+        """Return lightweight metadata for bridge discovery."""
+        try:
+            status = self._capture_service.run({})
+            data = status.get("data") or {}
+            return {
+                "loaded": bool(data.get("loaded")),
+                "capture_path": data.get("path"),
+                "api": data.get("api"),
+            }
+        except Exception as exc:
+            return {
+                "loaded": False,
+                "status_error": str(exc),
+            }
 
     def handle(self, request):
         request_id = request.get("id")

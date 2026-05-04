@@ -14,17 +14,21 @@ Connect the MCP runtime to the live `qrenderdoc` bridge and expose the first pas
 - [x] route live-capable tools through the bridge from the MCP runtime
 - [x] implement compact `list_passes` in the qrenderdoc extension
 - [x] validate both `find_events` and `list_passes` on a real capture
+- [x] support parallel qrenderdoc windows with explicit `window_id` routing
 
 ## Constraints
 
 - keep compact envelope shape
 - preserve offline bootstrap tools
 - do not add heavyweight pipeline dumps in this milestone
+- do not share a request queue between qrenderdoc windows
 
 ## Validation Notes
 
 - live bridge client implemented in `src/renderdoc_mcp/integration/bridge_client.py`
 - MCP runtime now routes `get_capture_status`, `find_events`, and `list_passes` through the live bridge when available
+- bridge instances are discovered through `%TEMP%\renderdoc_mcp_bridge\instances\<window_id>`
+- `list_live_windows` returns active `window_id` values, pid, capture path, API, and heartbeat age
 - validated direct bridge requests with:
 - `scripts/bridge_req.py find_events --params-file fixtures\requests\find.json`
 - `scripts/bridge_req.py list_passes --params-file fixtures\requests\list_passes.json`
@@ -34,3 +38,8 @@ Connect the MCP runtime to the live `qrenderdoc` bridge and expose the first pas
   - `Compute Pass #1`
   - `Depth-only Pass #1`
   - `Colour Pass #1 (1 Targets + Depth)`
+- validated parallel windows on 2026-05-04 with:
+  - `C:\Caps\剧情\Endfield-frame360653.rdc`
+  - `C:\Caps\世界\Endfield-frame7146.rdc`
+- confirmed `get_capture_status` and `list_passes(limit=3)` route to the selected capture by `window_id`
+- confirmed an unqualified live request fails when multiple bridge windows are active

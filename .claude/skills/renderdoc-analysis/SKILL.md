@@ -4,6 +4,7 @@ description: Analyze RenderDoc observe-layer evidence from renderdoc-mcp. Use fo
 ---
 
 # RenderDoc Analysis
+
 Use this skill only after collecting facts from `renderdoc-mcp`.
 Working boundary:
 - MCP is the observe layer.
@@ -11,14 +12,9 @@ Working boundary:
 - Name packet fields or inspect outputs when you cite evidence.
 - Treat script outputs as evidence helpers, not final authority.
 - If evidence is insufficient, stop at a broader family.
+- If multiple qrenderdoc windows may be open, call `list_live_windows` first and pass `window_id` to every live MCP tool. For bundled scripts, set `RENDERDOC_MCP_WINDOW_ID`.
 
-Task routes:
-- `analyze-pass`
-- `trace-resource-flow`
-- `analyze-material-usage`
-- `reverse-action`
-- `build-frame-report`
-- `reverse-render-pipeline`
+Task routes: `analyze-pass`, `trace-resource-flow`, `analyze-material-usage`, `reverse-action`, `build-frame-report`, `reverse-render-pipeline`
 
 Read only the references you need:
 - routing: `references/tool-map.md`
@@ -115,7 +111,6 @@ Default path:
 12. Write the result with `references/report-format.md` and use `references/shader-patterns.md` for motif recognition.
 
 Reverse-action acceptance bar:
-
 - list the key `t#`, `u#`, `cb#`, and `vb/ib` inputs
 - explain what each important resource is doing, not just that it is bound
 - split the decisive shader into line ranges with a function for each range
@@ -147,7 +142,6 @@ Default path:
 5. Write the result with `references/report-format.md`
 
 Final rules:
-
 - Prefer broad families over shaky narrow labels.
 - Do not let one representative draw define the whole pass.
 - Do not translate `fullscreen`, `local`, `simple mesh`, or `skeletal mesh` directly into semantics.

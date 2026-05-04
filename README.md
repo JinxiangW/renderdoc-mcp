@@ -6,6 +6,8 @@ RenderDoc MCP workspace for a TA-focused, token-efficient analysis server.
 
 - Prioritize material debugging, draw call location, reverse analysis, and model/texture export.
 - Support both live `qrenderdoc` workflows and offline `.rdc` analysis.
+- Live qrenderdoc mode supports parallel windows; use `list_live_windows` and pass
+  `window_id` when more than one bridge window is active.
 - Prefer compact structured responses over large raw payloads.
 - Use standard graphics terminology without adding a separate TA translation layer.
 

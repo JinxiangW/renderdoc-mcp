@@ -64,6 +64,7 @@ class LiveToolRegistry:
     def __init__(self, client: LiveBridgeClient | None = None) -> None:
         self.client = client or LiveBridgeClient()
         self.handlers: dict[str, ToolHandler] = {
+            "list_live_windows": self._list_live_windows,
             "get_capture_status": self._get_capture_status,
             "find_events": self._find_events,
             "list_passes": self._list_passes,
@@ -86,58 +87,83 @@ class LiveToolRegistry:
             raise KeyError("Unknown live tool: {}".format(method))
         return self.handlers[method](params or {})
 
-    def available(self) -> bool:
-        return self.client.available()
+    def available(self, window_id: str | None = None) -> bool:
+        return self.client.available(window_id)
 
     def require(self, method: str, params: dict[str, Any] | None = None) -> Any:
-        if not self.available():
+        clean_params, window_id = self._split_window_params(params or {})
+        if not self.available(window_id):
             raise RuntimeError("Live qrenderdoc bridge is not available")
-        return self.invoke(method, params or {})
+        return self.invoke(method, {**clean_params, "window_id": window_id})
 
-    def _get_capture_status(self, _: dict[str, Any]) -> Any:
-        return self.client.call("get_capture_status")
+    @staticmethod
+    def _split_window_params(params: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        clean_params = dict(params)
+        window_id = clean_params.pop("window_id", None) or clean_params.pop("bridge_id", None)
+        return clean_params, window_id
 
     def _find_events(self, params: dict[str, Any]) -> Any:
-        return self.client.call("find_events", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("find_events", clean_params, window_id=window_id)
 
     def _list_passes(self, params: dict[str, Any]) -> Any:
-        return self.client.call("list_passes", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("list_passes", clean_params, window_id=window_id)
 
     def _inspect_pipeline_state(self, params: dict[str, Any]) -> Any:
-        return self.client.call("inspect_pipeline_state", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("inspect_pipeline_state", clean_params, window_id=window_id)
 
     def _inspect_shader(self, params: dict[str, Any]) -> Any:
-        return self.client.call("inspect_shader", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("inspect_shader", clean_params, window_id=window_id)
 
     def _inspect_cbuffer_values(self, params: dict[str, Any]) -> Any:
-        return self.client.call("inspect_cbuffer_values", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("inspect_cbuffer_values", clean_params, window_id=window_id)
 
     def _read_buffer(self, params: dict[str, Any]) -> Any:
-        return self.client.call("read_buffer", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("read_buffer", clean_params, window_id=window_id)
 
     def _get_shader_disasm(self, params: dict[str, Any]) -> Any:
-        return self.client.call("get_shader_disasm", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("get_shader_disasm", clean_params, window_id=window_id)
 
     def _inspect_texture_usage(self, params: dict[str, Any]) -> Any:
-        return self.client.call("inspect_texture_usage", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("inspect_texture_usage", clean_params, window_id=window_id)
 
     def _inspect_mesh(self, params: dict[str, Any]) -> Any:
-        return self.client.call("inspect_mesh", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("inspect_mesh", clean_params, window_id=window_id)
 
     def _get_frame_packet(self, params: dict[str, Any]) -> Any:
-        return self.client.call("get_frame_packet", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("get_frame_packet", clean_params, window_id=window_id)
 
     def _get_pass_packet(self, params: dict[str, Any]) -> Any:
-        return self.client.call("get_pass_packet", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("get_pass_packet", clean_params, window_id=window_id)
 
     def _get_draw_packet(self, params: dict[str, Any]) -> Any:
-        return self.client.call("get_draw_packet", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("get_draw_packet", clean_params, window_id=window_id)
 
     def _debug_save_overlay(self, params: dict[str, Any]) -> Any:
-        return self.client.call("debug_save_overlay", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("debug_save_overlay", clean_params, window_id=window_id)
 
     def _debug_save_texture(self, params: dict[str, Any]) -> Any:
-        return self.client.call("debug_save_texture", params)
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("debug_save_texture", clean_params, window_id=window_id)
+
+    def _list_live_windows(self, _: dict[str, Any]) -> Any:
+        return self.client.list_windows()
+
+    def _get_capture_status(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("get_capture_status", clean_params, window_id=window_id)
 
 
 def _configure_stdio() -> None:
@@ -172,8 +198,14 @@ def maybe_create_fastmcp() -> Any | None:
     # `live.require()` and `description=` remove most of the duplication without hiding
     # arguments behind dynamic registration.
 
+    @app.tool(description=descriptions["list_live_windows"])
+    def list_live_windows() -> Any:
+        return live.invoke("list_live_windows")
+
     @app.tool(description=descriptions["get_capture_status"])
-    def get_capture_status() -> Any:
+    def get_capture_status(window_id: str | None = None) -> Any:
+        if window_id is not None:
+            return live.require("get_capture_status", {"window_id": window_id})
         if live.available():
             return live.invoke("get_capture_status")
         return offline.invoke("get_capture_status")
@@ -194,6 +226,7 @@ def maybe_create_fastmcp() -> Any | None:
         eid_min: int | None = None,
         eid_max: int | None = None,
         limit: int = 50,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "find_events",
@@ -204,6 +237,7 @@ def maybe_create_fastmcp() -> Any | None:
                 "eid_min": eid_min,
                 "eid_max": eid_max,
                 "limit": limit,
+                "window_id": window_id,
             },
         )
 
@@ -211,23 +245,27 @@ def maybe_create_fastmcp() -> Any | None:
     def list_passes(
         marker: str | None = None,
         limit: int = 50,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "list_passes",
             {
                 "marker": marker,
                 "limit": limit,
+                "window_id": window_id,
             },
         )
 
     @app.tool(description=descriptions["inspect_pipeline_state"])
     def inspect_pipeline_state(
         eid: int,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "inspect_pipeline_state",
             {
                 "eid": eid,
+                "window_id": window_id,
             },
         )
 
@@ -237,6 +275,7 @@ def maybe_create_fastmcp() -> Any | None:
         overlay: str = "drawcall",
         rid: str | None = None,
         dest: str = "PNG",
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "debug_save_overlay",
@@ -245,6 +284,7 @@ def maybe_create_fastmcp() -> Any | None:
                 "overlay": overlay,
                 "rid": rid,
                 "dest": dest,
+                "window_id": window_id,
             },
         )
 
@@ -253,6 +293,7 @@ def maybe_create_fastmcp() -> Any | None:
         rid: str,
         eid: int | None = None,
         dest: str = "PNG",
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "debug_save_texture",
@@ -260,6 +301,7 @@ def maybe_create_fastmcp() -> Any | None:
                 "rid": rid,
                 "eid": eid,
                 "dest": dest,
+                "window_id": window_id,
             },
         )
 
@@ -267,12 +309,14 @@ def maybe_create_fastmcp() -> Any | None:
     def inspect_shader(
         eid: int,
         stage: str,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "inspect_shader",
             {
                 "eid": eid,
                 "stage": stage,
+                "window_id": window_id,
             },
         )
 
@@ -282,6 +326,7 @@ def maybe_create_fastmcp() -> Any | None:
         stage: str,
         slot: int | None = None,
         raw: bool = False,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "inspect_cbuffer_values",
@@ -290,6 +335,7 @@ def maybe_create_fastmcp() -> Any | None:
                 "stage": stage,
                 "slot": slot,
                 "raw": raw,
+                "window_id": window_id,
             },
         )
 
@@ -301,6 +347,7 @@ def maybe_create_fastmcp() -> Any | None:
         format: str = "raw",
         stride: int | None = None,
         eid: int | None = None,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "read_buffer",
@@ -311,6 +358,7 @@ def maybe_create_fastmcp() -> Any | None:
                 "format": format,
                 "stride": stride,
                 "eid": eid,
+                "window_id": window_id,
             },
         )
 
@@ -320,6 +368,7 @@ def maybe_create_fastmcp() -> Any | None:
         stage: str,
         offset: int = 0,
         max_lines: int = 400,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "get_shader_disasm",
@@ -328,6 +377,7 @@ def maybe_create_fastmcp() -> Any | None:
                 "stage": stage,
                 "offset": offset,
                 "max_lines": max_lines,
+                "window_id": window_id,
             },
         )
 
@@ -336,6 +386,7 @@ def maybe_create_fastmcp() -> Any | None:
         rid: str | None = None,
         name: str | None = None,
         limit: int = 10,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "inspect_texture_usage",
@@ -343,35 +394,39 @@ def maybe_create_fastmcp() -> Any | None:
                 "rid": rid,
                 "name": name,
                 "limit": limit,
+                "window_id": window_id,
             },
         )
 
     @app.tool(description=descriptions["inspect_mesh"])
     def inspect_mesh(
         eid: int,
+        window_id: str | None = None,
     ) -> Any:
         return live.require(
             "inspect_mesh",
             {
                 "eid": eid,
+                "window_id": window_id,
             },
         )
 
     @app.tool(description=descriptions["get_frame_packet"])
-    def get_frame_packet(limit: int = 20) -> Any:
-        return live.require("get_frame_packet", {"limit": limit})
+    def get_frame_packet(limit: int = 20, window_id: str | None = None) -> Any:
+        return live.require("get_frame_packet", {"limit": limit, "window_id": window_id})
 
     @app.tool(description=descriptions["get_pass_packet"])
     def get_pass_packet(
         marker: str | None = None,
         eid: int | None = None,
         limit: int = 8,
+        window_id: str | None = None,
     ) -> Any:
-        return live.require("get_pass_packet", {"marker": marker, "eid": eid, "limit": limit})
+        return live.require("get_pass_packet", {"marker": marker, "eid": eid, "limit": limit, "window_id": window_id})
 
     @app.tool(description=descriptions["get_draw_packet"])
-    def get_draw_packet(eid: int) -> Any:
-        return live.require("get_draw_packet", {"eid": eid})
+    def get_draw_packet(eid: int, window_id: str | None = None) -> Any:
+        return live.require("get_draw_packet", {"eid": eid, "window_id": window_id})
 
     return app
 
@@ -380,8 +435,11 @@ def run_local_json(method: str, params: dict[str, Any]) -> int:
     live = LiveToolRegistry()
     offline = OfflineToolRegistry()
     try:
-        if method in live.handlers:
-            if live.available():
+        if method == "list_live_windows":
+            result = live.invoke(method, params)
+        elif method in live.handlers:
+            window_id = params.get("window_id") or params.get("bridge_id")
+            if live.available(window_id):
                 result = live.invoke(method, params)
             else:
                 result = _error_envelope(

@@ -6,6 +6,14 @@
 - Read `*_full.json` only when summary confidence is `low` or `needs_detail` is non-empty.
 - If you need full output, read only the relevant fields or sections instead of the whole file.
 
+## Live Window Selection
+
+1. Use `list_live_windows` when more than one qrenderdoc window may be active.
+2. Match the intended capture by `capture_path`.
+3. Pass `window_id` on all live MCP calls for that task.
+4. For bundled scripts, set `RENDERDOC_MCP_WINDOW_ID` before running the script.
+5. Treat a multiple-window error as a target-selection problem, not as evidence failure.
+
 ## Pass Analysis
 
 1. Start with `get_pass_packet`.

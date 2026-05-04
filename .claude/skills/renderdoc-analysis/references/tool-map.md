@@ -2,6 +2,15 @@
 
 Use this file to choose the minimum observe-tool set for each analysis task.
 
+## Live Target Setup
+
+When a task uses live qrenderdoc data:
+
+- call `list_live_windows` first if more than one qrenderdoc window may be open
+- pick the `window_id` whose `capture_path` matches the target capture
+- pass that `window_id` to every live MCP tool call
+- for bundled scripts, set `RENDERDOC_MCP_WINDOW_ID=<window_id>`
+
 ## `analyze-pass`
 
 Start with:
