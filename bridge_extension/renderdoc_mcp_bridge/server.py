@@ -3,11 +3,16 @@
 import json
 import os
 import tempfile
+import threading
 import time
 import traceback
 import uuid
 
-from PySide2.QtCore import QObject, QTimer
+try:
+    from PySide2.QtCore import QObject, QTimer
+except ImportError:  # pragma: no cover - exercised in RenderDuck without PySide2
+    QObject = object
+    QTimer = None
 
 IPC_DIR = os.path.join(tempfile.gettempdir(), "renderdoc_mcp_bridge")
 REQUESTS_DIR = os.path.join(IPC_DIR, "requests")
@@ -20,9 +25,12 @@ class BridgeServer(QObject):
     """Simple polling bridge server for qrenderdoc extension mode."""
 
     def __init__(self, handler, parent=None):
-        super().__init__(parent)
+        if QTimer is not None:
+            super().__init__(parent)
         self.handler = handler
         self._timer = None
+        self._thread = None
+        self._stop_event = threading.Event()
         self._running = False
         os.makedirs(IPC_DIR, exist_ok=True)
         os.makedirs(REQUESTS_DIR, exist_ok=True)
@@ -30,18 +38,32 @@ class BridgeServer(QObject):
 
     def start(self):
         self._running = True
+        self._stop_event.clear()
         self._cleanup()
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._poll)
-        self._timer.start(100)
+        if QTimer is not None:
+            self._timer = QTimer(self)
+            self._timer.timeout.connect(self._poll)
+            self._timer.start(100)
+        else:
+            self._thread = threading.Thread(target=self._thread_main, name="renderdoc_mcp_bridge", daemon=True)
+            self._thread.start()
         return True
 
     def stop(self):
         self._running = False
+        self._stop_event.set()
         if self._timer is not None:
             self._timer.stop()
             self._timer = None
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
         self._cleanup()
+
+    def _thread_main(self):
+        while not self._stop_event.is_set():
+            self._poll()
+            self._stop_event.wait(0.1)
 
     def _cleanup(self):
         for path in (LOCK_FILE, HEARTBEAT_FILE):

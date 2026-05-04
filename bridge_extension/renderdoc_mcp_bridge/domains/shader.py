@@ -1,5 +1,8 @@
 """Shader inspection services."""
 
+import hashlib
+import os
+
 import renderdoc as rd
 
 from .pipeline import ShaderSupportMixin
@@ -497,6 +500,109 @@ class ShaderServiceMixin(ShaderSupportMixin):
                     "cbufs": cbufs,
                     "sig": sig,
                     "code": self._shader_snippet(controller, pipe, stage_enum, refl),
+                },
+                "err": None,
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        self.ctx.Replay().BlockInvoke(collect)
+        return result
+
+    def export_shader_raw_bytes(self, params):
+        if not self.ctx.IsCaptureLoaded():
+            return self._no_capture()
+
+        eid = params.get("eid")
+        stage_name = params.get("stage")
+        dest = params.get("dest")
+        if eid is None or not stage_name or not dest:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "missing_args", "msg": "eid, stage, and dest are required"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        eid = int(eid)
+        stage_name = str(stage_name).lower()
+        stage_enum = self._stage_enum_from_name(stage_name)
+        if stage_enum is None:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "bad_stage", "msg": "Unsupported stage"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        dest = os.path.abspath(str(dest))
+        result = None
+
+        def collect(controller):
+            nonlocal result
+            controller.SetFrameEvent(eid, True)
+            pipe = controller.GetPipelineState()
+            shader = pipe.GetShader(stage_enum)
+            shader_str = str(shader)
+            if not shader_str or "Null" in shader_str or shader_str == "ResourceId::0":
+                result = {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {"code": "no_shader", "msg": "No shader bound for stage"},
+                    "meta": {"cap": "active", "truncated": False},
+                }
+                return
+
+            refl = pipe.GetShaderReflection(stage_enum)
+            try:
+                raw = bytes(getattr(refl, "rawBytes", b"") or b"")
+            except Exception:
+                try:
+                    raw = bytearray(getattr(refl, "rawBytes", []) or [])
+                    raw = bytes(raw)
+                except Exception as exc:
+                    result = {
+                        "ok": False,
+                        "mode": "summary",
+                        "data": None,
+                        "err": {"code": "raw_bytes_failed", "msg": str(exc)},
+                        "meta": {"cap": "active", "truncated": False},
+                    }
+                    return
+
+            if not raw:
+                result = {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {"code": "empty_raw_bytes", "msg": "Shader reflection returned no raw bytes"},
+                    "meta": {"cap": "active", "truncated": False},
+                }
+                return
+
+            parent = os.path.dirname(dest)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(dest, "wb") as handle:
+                handle.write(raw)
+
+            result = {
+                "ok": True,
+                "mode": "summary",
+                "data": {
+                    "eid": eid,
+                    "stage": stage_name,
+                    "shader": {
+                        "sid": shader_str,
+                        "entry": pipe.GetShaderEntryPoint(stage_enum),
+                        "name": self._shader_name(refl, shader_str),
+                    },
+                    "encoding": self._enum_tail(getattr(refl, "encoding", None)),
+                    "dest": dest,
+                    "byte_count": len(raw),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
                 },
                 "err": None,
                 "meta": {"cap": "active", "truncated": False},
