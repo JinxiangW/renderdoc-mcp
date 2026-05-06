@@ -96,23 +96,26 @@ Default path:
    - `inspect_shader.bind`
    - `inspect_shader.bindings`
    - `inspect_shader.cbufs`
+   - `inspect_shader.debug`
    - `inspect_shader.sig`
    - draw-packet `io`
-6. Use `get_shader_disasm` to segment the decisive stage by code ranges. At minimum identify:
+6. Use `get_shader_code` first for the decisive stage. It should return source when available and disassembly otherwise.
+7. Use `get_shader_source` or `get_shader_disasm` directly only when you need explicit control over the fallback path or file selection.
+8. Segment the decisive code by line ranges. At minimum identify:
    - declaration / resource setup
    - input reconstruction or coordinate prep
    - texture sampling and decode blocks
    - lighting or material evaluation blocks
    - output packing / final writes
-7. Use disassembly line ranges explicitly. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries.
-8. Treat resource semantics as unproven until tied to actual code use. Resource name, format, dimensions, and downstream use all matter.
-9. Use `inspect_texture_usage` for the few inputs or outputs that change the conclusion. Default priority:
+9. Use explicit line ranges from whichever code view you rely on. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries.
+10. Treat resource semantics as unproven until tied to actual code use. Resource name, format, dimensions, and downstream use all matter.
+11. Use `inspect_texture_usage` for the few inputs or outputs that change the conclusion. Default priority:
    - one main output RT or UAV
    - one disputed input texture
    - one downstream consumer if output channel meaning is uncertain
-10. Use `io.in_tex_meta` and `io.out_*_meta` to judge partial coverage. Do not compare `inspect_shader.bind.srv` directly against `io.in_tex` as if they were the same counting basis.
-11. Export overlay or before/after RT only when visible contribution itself is disputed; do not let overlay work replace shader analysis.
-12. Write the result with `references/report-format.md` and use `references/shader-patterns.md` for motif recognition.
+12. Use `io.in_tex_meta` and `io.out_*_meta` to judge partial coverage. Do not compare `inspect_shader.bind.srv` directly against `io.in_tex` as if they were the same counting basis.
+13. Export overlay or before/after RT only when visible contribution itself is disputed; do not let overlay work replace shader analysis.
+14. Write the result with `references/report-format.md` and use `references/shader-patterns.md` for motif recognition.
 
 Reverse-action acceptance bar:
 

@@ -21,3 +21,7 @@ RenderDoc MCP workspace for a TA-focused, token-efficient analysis server.
 - [Feature Tree](./docs/feat-tree.md)
 - [Schema Policy](./docs/schema.md)
 - [Checklist](./docs/checklist.md)
+- [UE Workflow Roadmap](./docs/ue_renderdoc_workflow.md)
+- [UE-Side MCP Checklist](./docs/ue_side_mcp_checklist.md)
+- [RenderDoc MCP Checklist](./docs/renderdoc_mcp_checklist.md)
+- [Capture Context Sidecar](./docs/capture_context.md)

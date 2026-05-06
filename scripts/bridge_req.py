@@ -37,26 +37,53 @@ def main() -> int:
         params = json.loads(args.params)
 
     ipc = Path(tempfile.gettempdir()) / "renderdoc_mcp_bridge"
-    req_dir = ipc / "requests"
-    resp_dir = ipc / "responses"
+    requests_dir = ipc / "requests"
+    responses_dir = ipc / "responses"
+    req = ipc / "request.json"
+    resp = ipc / "response.json"
+    lock = ipc / "lock"
 
     if not ipc.exists():
         raise SystemExit("Bridge IPC directory not found. Is qrenderdoc running with the extension loaded?")
 
-    req_dir.mkdir(parents=True, exist_ok=True)
-    resp_dir.mkdir(parents=True, exist_ok=True)
-
     request_id = str(uuid.uuid4())
-    req = req_dir / f"{request_id}.json"
-    resp = resp_dir / f"{request_id}.json"
-    _write_json_atomic(
-        req,
-        {
-            "id": request_id,
-            "method": args.method,
-            "params": params,
-        },
-    )
+    payload = {
+        "id": request_id,
+        "method": args.method,
+        "params": params,
+    }
+
+    if requests_dir.exists() and responses_dir.exists():
+        responses_dir.mkdir(parents=True, exist_ok=True)
+        requests_dir.mkdir(parents=True, exist_ok=True)
+        resp = responses_dir / f"{request_id}.json"
+        req = requests_dir / f"{request_id}.json"
+        if resp.exists():
+            resp.unlink()
+        _write_json_atomic(req, payload)
+    else:
+        if resp.exists():
+            resp.unlink()
+        start = time.time()
+        while time.time() - start < args.timeout:
+            if not lock.exists():
+                try:
+                    lock.write_text("lock", encoding="utf-8")
+                    break
+                except OSError:
+                    time.sleep(0.05)
+                    continue
+            time.sleep(0.05)
+        else:
+            raise SystemExit("Timed out waiting to acquire bridge write slot")
+
+        try:
+            _write_json_atomic(req, payload)
+        finally:
+            try:
+                lock.unlink()
+            except FileNotFoundError:
+                pass
 
     start = time.time()
     while time.time() - start < args.timeout:
