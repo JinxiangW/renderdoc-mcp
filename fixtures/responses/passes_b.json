@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "mode": "summary",
+  "data": {
+    "passes": [
+      {
+        "eid": 100,
+        "pass": "BasePass",
+        "stats": {"draw": 12, "dispatch": 0, "copy": 0, "clear": 1, "action": 0, "child": 13}
+      },
+      {
+        "eid": 210,
+        "pass": "Lighting",
+        "stats": {"draw": 4, "dispatch": 0, "copy": 0, "clear": 0, "action": 0, "child": 4}
+      },
+      {
+        "eid": 400,
+        "pass": "Translucency",
+        "stats": {"draw": 6, "dispatch": 0, "copy": 0, "clear": 0, "action": 0, "child": 6}
+      }
+    ]
+  },
+  "err": null,
+  "meta": {
+    "cap": "active",
+    "truncated": false,
+    "count": 3
+  }
+}

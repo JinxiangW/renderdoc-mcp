@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "mode": "summary",
+  "data": {
+    "eid": 4217,
+    "name": "DrawIndexedInstanced",
+    "type": "Draw",
+    "counts": {"idx": 38100, "inst": 1},
+    "shader": {
+      "stage": "ps",
+      "shader": {"name": "BasePassPS_Alt", "entry": "main"}
+    },
+    "io": {
+      "in_tex": [
+        {"rid": "ResourceId::702", "name": "SceneDepth"},
+        {"rid": "ResourceId::918", "name": "GBufferA"},
+        {"rid": "ResourceId::931", "name": "CustomMask"}
+      ],
+      "out_rt": [
+        {"rid": "ResourceId::930", "name": "SceneColor"}
+      ],
+      "out_uav": [
+        {"rid": "ResourceId::940", "name": "LightingUAV"}
+      ],
+      "out_ds": {"rid": "ResourceId::702", "name": "SceneDepth"},
+      "out_next": [
+        {"eid": 5112, "usage": "PS_Resource"},
+        {"eid": 5119, "usage": "PS_Resource"}
+      ]
+    }
+  },
+  "err": null,
+  "meta": {"cap": "active", "truncated": false}
+}

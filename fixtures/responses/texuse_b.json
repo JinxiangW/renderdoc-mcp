@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "mode": "summary",
+  "data": {
+    "rid": "ResourceId::918",
+    "name": "GBufferA",
+    "producer": {"eid": 4211, "usage": "ColorTarget", "name": "BasePass", "pass": "BasePass"},
+    "last_write": {"eid": 4300, "usage": "ColorTarget", "name": "DecalPass", "pass": "DecalPass"},
+    "first_read": {"eid": 5200, "usage": "PS_Resource", "name": "LightingPass", "pass": "LightingPass"},
+    "first_ps_read": {"eid": 5200, "usage": "PS_Resource", "name": "LightingPass", "pass": "LightingPass"},
+    "uses": {"read": 9, "write": 2},
+    "items": [
+      {"eid": 4211, "type": "write", "usage": "ColorTarget", "name": "BasePass"},
+      {"eid": 4300, "type": "write", "usage": "ColorTarget", "name": "DecalPass"},
+      {"eid": 5200, "type": "read", "usage": "PS_Resource", "name": "LightingPass"}
+    ]
+  },
+  "err": null,
+  "meta": {"cap": "active", "truncated": false, "count": 11}
+}

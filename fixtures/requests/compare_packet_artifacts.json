@@ -1,0 +1,6 @@
+{
+  "params": {
+    "file_a": "fixtures/responses/packet_a.json",
+    "file_b": "fixtures/responses/packet_b.json"
+  }
+}

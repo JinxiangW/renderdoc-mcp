@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "mode": "summary",
+  "data": {
+    "count": 3,
+    "items": [
+      {
+        "eid": 100,
+        "pass": "BasePass",
+        "stats": {"draw": 10, "dispatch": 0, "copy": 0, "clear": 1, "action": 0, "child": 11}
+      },
+      {
+        "eid": 200,
+        "pass": "Lighting",
+        "stats": {"draw": 3, "dispatch": 0, "copy": 0, "clear": 0, "action": 0, "child": 3}
+      },
+      {
+        "eid": 300,
+        "pass": "PostProcess",
+        "stats": {"draw": 2, "dispatch": 1, "copy": 0, "clear": 0, "action": 0, "child": 3}
+      }
+    ]
+  },
+  "err": null,
+  "meta": {
+    "cap": "active",
+    "truncated": false,
+    "count": 3
+  }
+}
