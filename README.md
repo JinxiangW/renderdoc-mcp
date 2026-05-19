@@ -23,3 +23,13 @@ RenderDoc MCP workspace for a TA-focused, token-efficient analysis server.
 - [Feature Tree](./docs/feat-tree.md)
 - [Schema Policy](./docs/schema.md)
 - [Checklist](./docs/checklist.md)
+
+## Local Setup
+
+Install the qrenderdoc bridge extension and bundled Ruri shader decompiler:
+
+```powershell
+py -3 scripts\install_ext.py
+```
+
+Restart RenderDoc after running the installer. The shader edit/decompile menu will include `Ruri DXBC -> HLSL`, `Ruri DXIL -> HLSL`, and `Ruri SPIR-V -> HLSL`.
