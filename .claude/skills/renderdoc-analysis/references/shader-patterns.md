@@ -13,8 +13,10 @@ Goal:
 
 1. note stage, entry, target, and `line_count`
 2. note binding counts from `inspect_shader` or packet shader data
-3. read only enough disassembly to identify decisive motifs
-4. stop once the action-level conclusion is stable
+3. export inspected action shader stages to HLSL with Ruri into the action working directory
+4. read and annotate the HLSL by large functional blocks
+5. use disassembly to cross-check decisive motifs and cite concrete ranges
+6. stop once the action-level conclusion is stable
 
 ## Segmentation Rule
 
@@ -29,6 +31,8 @@ Split the decisive shader into explicit ranges such as:
 
 Use actual disassembly line ranges from `get_shader_disasm`.
 If the shader is long, you can leave uncertain ranges coarse, but every major claim should still point at one concrete range.
+
+When HLSL is available, also keep an annotated HLSL copy or adjacent notes file beside the export. The annotations should identify the large blocks above and explain the role of important input resources where they are first used.
 
 If the disassembly is long:
 
@@ -177,3 +181,4 @@ Likely meaning:
 - when multiple explanations fit, give the broader family and state the uncertainty
 - if bindings suggest more resources than the draw packet lists, report a partial binding map rather than inventing missing inputs
 - resource reports should answer what each important `t#`, `u#`, or `cb#` is doing in code, not just that it is present
+- input-resource notes should include slot, RID/name, format/dimensions when available, actual code role, and semantic status

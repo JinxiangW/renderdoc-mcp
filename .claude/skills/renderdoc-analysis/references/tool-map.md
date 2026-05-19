@@ -75,12 +75,15 @@ Start with:
 Add when needed:
 
 - `get_pass_packet` for broader pass role or sibling evidence beyond draw-packet context
+- Ruri HLSL export for the inspected action shader stages into the action working directory
 - `get_shader_disasm` for motif recognition in the decisive stage
 - `inspect_texture_usage` for the few outputs or disputed inputs that matter downstream
 
 Good stopping point:
 
+- exported or explicitly failed HLSL artifacts are recorded for the inspected shader stages
 - you can list the important `t#`, `u#`, `cb#`, and `vb/ib` inputs
+- you can annotate what important input resources do in code
 - you can explain the main shader code ranges and what each range does
 - you can describe `o#` or UAV outputs with evidence tied to code or downstream consumers
 - you can separate hard evidence from inferred material or effect role

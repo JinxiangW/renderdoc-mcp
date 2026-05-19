@@ -226,17 +226,23 @@ Geometry:
 Fixed-function State:
 - <blend / depth / rasterizer facts, or not applicable / API-limited>
 
+Shader Artifacts:
+- <HLSL path for each inspected stage, or decompile failure reason>
+
 Resource Inventory:
 - VS: <t#/cb#/vb inputs and roles>
 - PS: <t#/cb#/s# inputs and roles>
 - CS: <t#/u#/cb# inputs and roles, or not applicable>
 
+Input Resource Notes:
+- <slot/rid/name/format/dimensions/code role/status for important inputs>
+
 Constant Buffers:
 - <cb slot name size variables and likely usage>
 
 Shader Segments:
-- <lines A-B: what this range does>
-- <lines C-D: what this range does>
+- <HLSL block or disasm lines A-B: what this range does>
+- <HLSL block or disasm lines C-D: what this range does>
 
 Outputs:
 - <o#/rt/uav target and likely channel meaning>
@@ -262,6 +268,8 @@ Limits:
 Acceptance:
 
 - include pass context, resource IO, and shader behavior
+- cite exported HLSL paths or state why decompilation failed
+- include annotated roles for important `t#`, `s#`, `cb#`, `u#`, and `vb/ib` inputs
 - for dispatch events, mark geometry or fixed-function sections as not applicable instead of forcing graphics language
 - keep binding coverage provisional when packet IO is partial
 - summarize motifs rather than translating the whole disassembly

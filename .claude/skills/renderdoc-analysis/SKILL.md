@@ -13,6 +13,7 @@ Working boundary:
 - Treat script outputs as evidence helpers, not final authority.
 - If evidence is insufficient, stop at a broader family.
 - If multiple qrenderdoc windows may be open, call `list_live_windows` first and pass `window_id` to every live MCP tool. For bundled scripts, set `RENDERDOC_MCP_WINDOW_ID`.
+- When you finish using a qrenderdoc window or capture for the current task, close that opened content/window instead of leaving extra RenderDoc windows around.
 
 Task routes: `analyze-pass`, `trace-resource-flow`, `analyze-material-usage`, `reverse-action`, `build-frame-report`, `reverse-render-pipeline`
 
@@ -25,6 +26,7 @@ Read only the references you need:
 - evidence guardrails: `references/evidence-guardrails.md`
 - report format: `references/report-format.md`
 - shader motifs: `references/shader-patterns.md`
+- shader decompiler install/use: `references/decompiler.md`
 
 Script rule:
 - Always read `*_summary.json` first.
@@ -88,31 +90,50 @@ Default path:
 2. Use draw-packet `context` first for marker path, parent pass, root pass, position, and neighbors. Add `get_pass_packet` only when broader pass role or sibling evidence beyond packet context matters.
 3. For draws, `inspect_mesh` is the default, not optional. You need vertex attributes plus vertex/index buffer bindings before explaining the shader. For dispatches, mark geometry as not applicable.
 4. For draws, inspect both `vs` and `ps` unless one stage is proven irrelevant. For dispatches, inspect `cs`.
-5. Build a binding inventory before drawing conclusions:
+5. Create or reuse the action working directory before code reading. If the user supplied a directory, use it. Otherwise use the current report/bundle directory for that action, or `.state/action_reverse/<capture-or-session>/eid_<eid>/`.
+6. Decompile the inspected action shader stages with Ruri to HLSL and export them into the action working directory before writing the reverse report. For draws, decompile `vs` and `ps` unless one stage is proven irrelevant; for dispatches, decompile `cs`. Name files predictably, for example `eid_<eid>_<stage>_<shader-name-or-sid>.hlsl`. If Ruri is unavailable or decompilation fails, record the reason and continue with `get_shader_disasm`; do not skip this silently.
+7. Build a binding inventory before drawing conclusions:
    - `inspect_shader.bind`
    - `inspect_shader.bindings`
    - `inspect_shader.cbufs`
    - `inspect_shader.sig`
    - draw-packet `io`
-6. Use `get_shader_disasm` to segment the decisive stage by code ranges. At minimum identify:
+   - mesh `vb/ib` data for draw events
+8. Annotate the exported HLSL, or an adjacent `<shader>.notes.md`, before finalizing. The annotation must split code by large functional blocks and add concise comments for:
+   - declaration / resource setup
+   - vertex/input reconstruction or coordinate prep
+   - texture loads, sampling, decode, and masks
+   - material, lighting, composite, or compute evaluation
+   - output packing / final RT or UAV writes
+9. Annotate input resources near their HLSL declarations or in a dedicated resource note. For each important `t#`, `s#`, `cb#`, `u#`, and `vb/ib`, include slot, resource name/RID when available, format/dimensions when available, actual code role, and semantic status (`consumer-only`, `producer-confirmed`, or `ambiguous`).
+10. Use `get_shader_disasm` to cross-check the decisive stage and cite concrete code ranges. At minimum identify:
    - declaration / resource setup
    - input reconstruction or coordinate prep
    - texture sampling and decode blocks
    - lighting or material evaluation blocks
    - output packing / final writes
-7. Use disassembly line ranges explicitly. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries.
-8. Treat resource semantics as unproven until tied to actual code use. Resource name, format, dimensions, and downstream use all matter.
-9. Use `inspect_texture_usage` for the few inputs or outputs that change the conclusion. Default priority:
+11. Use HLSL block names and disassembly line ranges explicitly. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries. If HLSL and disassembly disagree, trust binding/IO facts and disassembly first, and state the mismatch.
+12. Treat resource semantics as unproven until tied to actual code use. Resource name, format, dimensions, producer evidence, and downstream use all matter.
+13. Trace producer evidence for semantic key inputs before assigning a narrow meaning. Key inputs include resources or channels used for branches, masks, alpha/transmittance, depth reconstruction, GBuffer decode, lighting lookup, or final output modulation. Default to at most 3 key inputs and one producer hop unless the user explicitly asks for deeper tracing.
+   - Start with `inspect_texture_usage` for the resource and use `producer`, `last_write`, `first_read_ctx`, and `first_ps_read_ctx` as evidence.
+   - If producer identity or channel meaning changes the conclusion, inspect the producer draw/dispatch and the relevant shader stage.
+   - For producer shaders, identify which RT/UAV channel is written and what broad input family feeds it, without inventing specific semantic names from the consumer alone.
+   - Classify resource meanings as `consumer-only`, `producer-confirmed`, or `ambiguous`. Use broader names when producer evidence is missing or mixed.
+14. Use `inspect_texture_usage` for the few inputs or outputs that change the conclusion. Default priority:
    - one main output RT or UAV
-   - one disputed input texture
+   - one disputed or branch-driving input texture
    - one downstream consumer if output channel meaning is uncertain
-10. Use `io.in_tex_meta` and `io.out_*_meta` to judge partial coverage. Do not compare `inspect_shader.bind.srv` directly against `io.in_tex` as if they were the same counting basis.
-11. Export overlay or before/after RT only when visible contribution itself is disputed; do not let overlay work replace shader analysis.
-12. Write the result with `references/report-format.md` and use `references/shader-patterns.md` for motif recognition.
+15. Use `io.in_tex_meta` and `io.out_*_meta` to judge partial coverage. Do not compare `inspect_shader.bind.srv` directly against `io.in_tex` as if they were the same counting basis.
+16. Export overlay or before/after RT only when visible contribution itself is disputed; do not let overlay work replace shader analysis.
+17. Write the result with `references/report-format.md` and use `references/shader-patterns.md` for motif recognition.
 
 Reverse-action acceptance bar:
+- export inspected shader stages to HLSL in the action working directory, or state why this failed
+- split and comment the HLSL by large functional blocks before reporting
 - list the key `t#`, `u#`, `cb#`, and `vb/ib` inputs
+- annotate important input resources with slot, RID/name, format/dimensions when available, actual code role, and confidence status
 - explain what each important resource is doing, not just that it is bound
+- for key mask/GBuffer/depth/lighting inputs, state whether the meaning is consumer-only, producer-confirmed, or ambiguous
 - split the decisive shader into line ranges with a function for each range
 - describe `o#` or UAV outputs with channel-level evidence when available
 - keep pass-family guesses secondary to shader/resource facts
