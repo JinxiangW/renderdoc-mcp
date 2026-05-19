@@ -1,0 +1,6 @@
+{
+  "params": {
+    "file_a": "fixtures/responses/texuse_a.json",
+    "file_b": "fixtures/responses/texuse_b.json"
+  }
+}

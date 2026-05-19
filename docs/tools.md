@@ -16,6 +16,7 @@ Live qrenderdoc tools accept an optional `window_id`.
 Purpose:
 
 - open a capture for offline inspection
+- when the live bridge is available, load that capture into the active `qrenderdoc` session
 - return only high-level capture facts
 
 Input:
@@ -46,11 +47,13 @@ Purpose:
 
 - tell the caller whether a capture is active
 - provide active API and path
+- report freshness against a capture directory when provided
 
 Input:
 
 ```json
 {
+  "directory": "C:/Project/Saved/RenderDocCaptures",
   "window_id": "105880-420776f9"
 }
 ```
@@ -62,7 +65,12 @@ Summary output:
   "loaded": true,
   "cap": "active",
   "api": "D3D11",
-  "path": "C:/captures/foo.rdc"
+  "path": "C:/captures/foo.rdc",
+  "mtime": "2026-04-23T14:35:44",
+  "latest_capture_path": "C:/captures/foo_2.rdc",
+  "is_latest": false,
+  "stale": true,
+  "source_type": {"type": "editor_viewport", "confidence": "high"}
 }
 ```
 
@@ -96,6 +104,14 @@ Summary output:
   ]
 }
 ```
+
+## 2b. Capture Freshness Workflow
+
+Tools:
+
+- `find_latest_capture(directory, recursive=true)` finds the newest `.rdc`.
+- `load_latest_capture(directory, recursive=true)` loads the newest `.rdc`; live mode switches `qrenderdoc`, offline mode updates local state.
+- `wait_for_new_capture(directory, previous_path, timeout=30, interval=0.5)` waits for a newer `.rdc` and loads it.
 
 ## 3. `find_events`
 
@@ -208,6 +224,8 @@ Input:
 ```json
 {
   "rid": "r918",
+  "eid_min": 4000,
+  "eid_max": 6000,
   "limit": 20
 }
 ```
@@ -478,7 +496,12 @@ Input:
 
 ```json
 {
-  "limit": 20
+  "limit": 20,
+  "pass_contains": "Lighting",
+  "draw_contains": "DrawIndexed",
+  "only_writes_to_resource": "ResourceId::918",
+  "only_reads_resource": "ResourceId::702",
+  "exclude_editor_only": true
 }
 ```
 
@@ -497,6 +520,13 @@ Summary output:
   ]
 }
 ```
+
+## 13. `get_pass_packet`
+
+Notes:
+
+- `include_hints=true` attaches a compact `ue` hint block derived from the capture sidecar when one exists
+- `sidecar` may be provided explicitly when the sidecar is not next to the capture
 
 ## 13. `get_pass_packet`
 
@@ -541,6 +571,13 @@ Summary output:
   "rep_draw": {}
 }
 ```
+
+## 14. `get_draw_packet`
+
+Notes:
+
+- `include_hints=true` attaches a compact `ue` hint block derived from the capture sidecar when one exists
+- `sidecar` may be provided explicitly when the sidecar is not next to the capture
 
 ## 14. `get_draw_packet`
 
@@ -625,6 +662,8 @@ Notes:
 - `io.in_tex` is a deduplicated resource list across stages, not a direct mirror of shader reflection counts
 - use `io.in_tex_meta` and `io.out_*_meta` to judge truncation or partial coverage
 - `context.parent_pass` is the nearest enclosing marker; `context.root_pass` is the outermost enclosing marker in the action path
+- `include_hints=true` attaches a compact `ue` hint block derived from the capture sidecar when one exists
+- `sidecar` may be provided explicitly when the sidecar is not next to the capture
 
 ## 15. `debug_save_overlay`
 
@@ -657,7 +696,370 @@ Input:
 {
   "rid": "ResourceId::918",
   "eid": 4217,
-  "dest": "PNG"
+  "dest": "E:/debug/scene_color.png",
+  "format": "PNG",
+  "overwrite": false
+}
+```
+
+Notes:
+
+- `dest="PNG"` / `HDR` / `DDS` remains supported as the legacy format-only form.
+- path `dest` creates parent directories automatically.
+- existing files are not overwritten unless `overwrite=true`; the returned `data.path` is the actual file written.
+
+## 1b. `get_capture_context`
+
+Purpose:
+
+- read a UE-side metadata sidecar attached to the active or selected capture
+- keep engine-specific reproduction context outside RenderDoc packet logic
+
+Input:
+
+```json
+{
+  "path": "C:/Caps/frame_0103.rdc",
+  "sidecar": "C:/Caps/frame_0103.rdc.context.json"
+}
+```
+
+## 1bb. `get_capture_hints`
+
+Purpose:
+
+- read compact UE semantic hints derived from the capture sidecar
+- provide a stable handoff layer between UE metadata and RenderDoc packet analysis
+
+Input:
+
+```json
+{
+  "path": "C:/Caps/frame_0103.rdc"
+}
+```
+
+Summary output:
+
+```json
+{
+  "capture": {"path": "C:/Caps/frame_0103.rdc", "name": "frame_0103.rdc"},
+  "hints": {
+    "engine": {"project": "ExampleGame", "rhi": "D3D12"},
+    "scene": {"map": "L_Test"},
+    "selection": {"actor": "BP_Hero", "material": "MI_HeroBody"},
+    "rdg": {"focus_pass": "BasePass"},
+    "matches": {"selection_present": true}
+  }
+}
+```
+
+## 1c. `compare_capture_contexts`
+
+Purpose:
+
+- compare UE-side metadata sidecars between two captures
+- surface engine/context changes before deeper RenderDoc frame diff work
+
+Input:
+
+```json
+{
+  "path_a": "C:/Caps/frame_0103.rdc",
+  "path_b": "C:/Caps/frame_0104.rdc"
+}
+```
+
+## 1d. `compare_pass_lists`
+
+Purpose:
+
+- compare two saved `list_passes` or `get_frame_packet` artifacts
+- provide a structured entry point for pass-level capture diff work
+
+Input:
+
+```json
+{
+  "file_a": "C:/Caps/frame_a_passes.json",
+  "file_b": "C:/Caps/frame_b_passes.json"
+}
+```
+
+## 1e. `compare_packet_artifacts`
+
+Purpose:
+
+- compare two saved compact JSON packet artifacts at field level
+- reuse the same diff entry point for draw packets, pipeline packets, and resource summaries
+
+Input:
+
+```json
+{
+  "file_a": "C:/Caps/packet_a.json",
+  "file_b": "C:/Caps/packet_b.json"
+}
+```
+
+## 1f. `compare_draw_packets`
+
+Purpose:
+
+- compare two saved draw-packet artifacts with draw-focused summaries
+- highlight shader, count, and IO changes before deeper report generation
+
+Input:
+
+```json
+{
+  "file_a": "C:/Caps/draw_a.json",
+  "file_b": "C:/Caps/draw_b.json"
+}
+```
+
+## 1g. `compare_texture_usage_artifacts`
+
+Purpose:
+
+- compare two saved texture-usage artifacts with resource-flow summaries
+- highlight producer / last-write / first-read and use-count changes
+
+Input:
+
+```json
+{
+  "file_a": "C:/Caps/texuse_a.json",
+  "file_b": "C:/Caps/texuse_b.json"
+}
+```
+
+Summary output:
+
+```json
+{
+  "a": {
+    "path": "C:/Caps/texuse_a.json",
+    "packet": {
+      "name": "GBufferA",
+      "uses": {"read": 7, "write": 1},
+      "producer": {"eid": 4211, "name": "BasePass"}
+    }
+  },
+  "b": {
+    "path": "C:/Caps/texuse_b.json",
+    "packet": {
+      "name": "GBufferA",
+      "uses": {"read": 9, "write": 2},
+      "last_write": {"eid": 4300, "name": "DecalPass"}
+    }
+  },
+  "summary": {
+    "changed": 4,
+    "uses_changed": true,
+    "producer_changed": false,
+    "first_read_changed": true,
+    "last_write_changed": true
+  }
+}
+```
+
+Summary output:
+
+```json
+{
+  "a": {
+    "path": "C:/Caps/draw_a.json",
+    "packet": {
+      "eid": 4217,
+      "type": "Draw",
+      "shader": {"name": "BasePassPS", "entry": "main", "stage": "ps"},
+      "io": {"in_tex": 2, "out_rt": 1, "out_uav": 0, "out_next": 1, "out_ds": true}
+    }
+  },
+  "b": {
+    "path": "C:/Caps/draw_b.json",
+    "packet": {
+      "eid": 4217,
+      "type": "Draw",
+      "shader": {"name": "BasePassPS_Alt", "entry": "main", "stage": "ps"}
+    }
+  },
+  "summary": {
+    "changed": 4,
+    "shader_changed": true,
+    "io_changed": true,
+    "counts_changed": true
+  }
+}
+```
+
+Summary output:
+
+```json
+{
+  "a": {"path": "C:/Caps/packet_a.json"},
+  "b": {"path": "C:/Caps/packet_b.json"},
+  "summary": {"changed": 3},
+  "changes": [
+    {"path": "data.ia.topo", "type": "changed", "a": "TriangleList", "b": "TriangleStrip"},
+    {"path": "data.sh.ps.name", "type": "changed", "a": "BasePassPS", "b": "BasePassPS_Alt"}
+  ]
+}
+```
+
+Summary output:
+
+```json
+{
+  "a": {"path": "C:/Caps/frame_a_passes.json", "count": 12},
+  "b": {"path": "C:/Caps/frame_b_passes.json", "count": 13},
+  "summary": {"added": 1, "removed": 0, "changed": 2, "unchanged": 10},
+  "added": [
+    {"pass": "Translucency", "occurrence": 1, "b": {"eid": 400, "pass": "Translucency"}}
+  ],
+  "changed": [
+    {
+      "pass": "BasePass",
+      "occurrence": 1,
+      "changes": [
+        {"path": "stats.draw", "a": 10, "b": 12}
+      ]
+    }
+  ]
+}
+```
+
+Summary output:
+
+```json
+{
+  "a": {
+    "capture": {"path": "C:/Caps/frame_0103.rdc", "name": "frame_0103.rdc"},
+    "meta": {"size": 123456, "mtime": "2026-04-07T12:00:00"}
+  },
+  "b": {
+    "capture": {"path": "C:/Caps/frame_0104.rdc", "name": "frame_0104.rdc"},
+    "meta": {"size": 123999, "mtime": "2026-04-07T12:02:00"}
+  },
+  "summary": {
+    "changed": 3,
+    "top_keys_a": ["camera", "cvars", "engine", "scene", "view"],
+    "top_keys_b": ["camera", "cvars", "engine", "scene", "view"]
+  },
+  "changes": [
+    {"path": "scene.map", "type": "changed", "a": "L_Test", "b": "L_Test_Night"},
+    {"path": "cvars.r.Lumen", "type": "changed", "a": 0, "b": 1}
+  ]
+}
+```
+
+Summary output:
+
+```json
+{
+  "cap": "active",
+  "capture": {
+    "path": "C:/Caps/frame_0103.rdc",
+    "name": "frame_0103.rdc"
+  },
+  "sidecar": {
+    "path": "C:/Caps/frame_0103.rdc.context.json",
+    "keys": ["camera", "cvars", "engine", "scene", "view"]
+  },
+  "ctx": {
+    "engine": {"rhi": "D3D12", "shader_platform": "PCD3D_SM6"},
+    "scene": {"map": "L_Test"},
+    "camera": {"name": "DebugCamera"},
+    "view": {"size": [2560, 1440]}
+  }
+}
+```
+
+## 15. `get_shader_source`
+
+Purpose:
+
+- return shader source/debug text when RenderDoc has source-level debug information
+- paginate source similarly to disassembly reads
+
+Input:
+
+```json
+{
+  "eid": 4211,
+  "stage": "ps",
+  "file": "BasePassPS.hlsl",
+  "offset": 0,
+  "max_lines": 200
+}
+```
+
+## 16. `get_shader_code`
+
+Purpose:
+
+- return shader source when source/debug information exists
+- automatically fall back to disassembly when source is unavailable
+- give one stable code-reading entry point to higher-level workflows
+
+Input:
+
+```json
+{
+  "eid": 4211,
+  "stage": "ps",
+  "offset": 0,
+  "max_lines": 120
+}
+```
+
+Summary output:
+
+```json
+{
+  "eid": 4211,
+  "stage": "ps",
+  "kind": "source",
+  "shader": {"name": "BasePassPS", "entry": "main"},
+  "debug": {"available": true, "has_source": true},
+  "code": {
+    "line_count": 184,
+    "offset": 0,
+    "returned": 120,
+    "truncated": true,
+    "text": "..."
+  }
+}
+```
+
+Summary output:
+
+```json
+{
+  "eid": 4211,
+  "stage": "ps",
+  "shader": {"name": "BasePassPS", "entry": "main"},
+  "debug": {
+    "available": true,
+    "debuggable": true,
+    "encoding": "HLSL",
+    "base_file": "BasePassPS.hlsl",
+    "file_count": 3,
+    "has_source": true
+  },
+  "files": [
+    {"index": 0, "filename": "BasePassPS.hlsl", "line_count": 184}
+  ],
+  "file": {
+    "index": 0,
+    "filename": "BasePassPS.hlsl",
+    "line_count": 184,
+    "offset": 0,
+    "returned": 184,
+    "truncated": false,
+    "text": "float4 main(...) { ... }"
+  }
 }
 ```
 

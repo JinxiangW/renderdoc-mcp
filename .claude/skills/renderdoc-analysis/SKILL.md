@@ -96,6 +96,7 @@ Default path:
    - `inspect_shader.bind`
    - `inspect_shader.bindings`
    - `inspect_shader.cbufs`
+   - `inspect_shader.debug`
    - `inspect_shader.sig`
    - draw-packet `io`
    - mesh `vb/ib` data for draw events
@@ -106,26 +107,28 @@ Default path:
    - material, lighting, composite, or compute evaluation
    - output packing / final RT or UAV writes
 9. Annotate input resources near their HLSL declarations or in a dedicated resource note. For each important `t#`, `s#`, `cb#`, `u#`, and `vb/ib`, include slot, resource name/RID when available, format/dimensions when available, actual code role, and semantic status (`consumer-only`, `producer-confirmed`, or `ambiguous`).
-10. Use `get_shader_disasm` to cross-check the decisive stage and cite concrete code ranges. At minimum identify:
+10. Use `get_shader_code` first for the decisive stage. It should return source when available and disassembly otherwise.
+11. Use `get_shader_source` or `get_shader_disasm` directly only when you need explicit control over the fallback path, file selection, or disassembly cross-check.
+12. Segment the decisive code by line ranges. At minimum identify:
    - declaration / resource setup
    - input reconstruction or coordinate prep
    - texture sampling and decode blocks
    - lighting or material evaluation blocks
    - output packing / final writes
-11. Use HLSL block comments and disassembly line ranges explicitly. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries. If decompiled code has only generated identifiers, refer to original generated names or slots rather than renaming them. If HLSL and disassembly disagree, trust binding/IO facts and disassembly first, and state the mismatch.
-12. Treat resource semantics as unproven until tied to actual code use. Resource name, format, dimensions, producer evidence, and downstream use all matter.
-13. Trace producer evidence for semantic key inputs before assigning a narrow meaning. Key inputs include resources or channels used for branches, masks, alpha/transmittance, depth reconstruction, GBuffer decode, lighting lookup, or final output modulation. Default to at most 3 key inputs and one producer hop unless the user explicitly asks for deeper tracing.
+13. Use HLSL block comments and disassembly line ranges explicitly. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries. If decompiled code has only generated identifiers, refer to original generated names or slots rather than renaming them. If HLSL and disassembly disagree, trust binding/IO facts and disassembly first, and state the mismatch.
+14. Treat resource semantics as unproven until tied to actual code use. Resource name, format, dimensions, producer evidence, and downstream use all matter.
+15. Trace producer evidence for semantic key inputs before assigning a narrow meaning. Key inputs include resources or channels used for branches, masks, alpha/transmittance, depth reconstruction, GBuffer decode, lighting lookup, or final output modulation. Default to at most 3 key inputs and one producer hop unless the user explicitly asks for deeper tracing.
    - Start with `inspect_texture_usage` for the resource and use `producer`, `last_write`, `first_read_ctx`, and `first_ps_read_ctx` as evidence.
    - If producer identity or channel meaning changes the conclusion, inspect the producer draw/dispatch and the relevant shader stage.
    - For producer shaders, identify which RT/UAV channel is written and what broad input family feeds it, without inventing specific semantic names from the consumer alone.
    - Classify resource meanings as `consumer-only`, `producer-confirmed`, or `ambiguous`. Use broader names when producer evidence is missing or mixed.
-14. Use `inspect_texture_usage` for the few inputs or outputs that change the conclusion. Default priority:
+16. Use `inspect_texture_usage` for the few inputs or outputs that change the conclusion. Default priority:
    - one main output RT or UAV
    - one disputed or branch-driving input texture
    - one downstream consumer if output channel meaning is uncertain
-15. Use `io.in_tex_meta` and `io.out_*_meta` to judge partial coverage. Do not compare `inspect_shader.bind.srv` directly against `io.in_tex` as if they were the same counting basis.
-16. Export overlay or before/after RT only when visible contribution itself is disputed; do not let overlay work replace shader analysis.
-17. Write the result with `references/report-format.md` and use `references/shader-patterns.md` for motif recognition.
+17. Use `io.in_tex_meta` and `io.out_*_meta` to judge partial coverage. Do not compare `inspect_shader.bind.srv` directly against `io.in_tex` as if they were the same counting basis.
+18. Export overlay or before/after RT only when visible contribution itself is disputed; do not let overlay work replace shader analysis.
+19. Write the result with `references/report-format.md` and use `references/shader-patterns.md` for motif recognition.
 
 Reverse-action acceptance bar:
 - export inspected shader stages to HLSL in the action working directory, or state why this failed

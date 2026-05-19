@@ -96,7 +96,20 @@ class ExportServiceMixin:
     def debug_save_texture(self, params):
         rid = params.get("rid")
         eid = params.get("eid")
-        dest = str(params.get("dest", "PNG")).upper()
+        dest_value = params.get("dest")
+        dest_format = params.get("format") or params.get("type")
+        dest_path = params.get("path") or params.get("output")
+        if dest_value is not None:
+            dest_text = str(dest_value)
+            if dest_text.upper() in ("PNG", "HDR", "DDS") and dest_format is None and dest_path is None:
+                dest_format = dest_text
+            elif dest_path is None:
+                dest_path = dest_text
+        if dest_format is None and dest_path is not None:
+            suffix = os.path.splitext(str(dest_path))[1].lower().lstrip(".")
+            if suffix in ("png", "hdr", "dds"):
+                dest_format = suffix
+        dest = str(dest_format or "PNG").upper()
         if rid is None:
             return {
                 "ok": False,
@@ -106,9 +119,7 @@ class ExportServiceMixin:
                 "meta": {"cap": "active", "truncated": False},
             }
 
-        out_dir = os.path.join(tempfile.gettempdir(), "renderdoc_mcp_exports")
-        os.makedirs(out_dir, exist_ok=True)
-        result = {"path": None, "error": None}
+        result = {"path": None, "error": None, "format": dest, "requested_dest": dest_path}
 
         def collect(controller):
             if eid is not None:
@@ -139,7 +150,11 @@ class ExportServiceMixin:
             if dest != "DDS":
                 save.mip = 0
                 save.slice.sliceIndex = 0
-            out_path = os.path.join(out_dir, "{}.{}".format(str(rid).replace("::", "_"), ext))
+            try:
+                out_path = self._resolve_export_path(dest_path, "texture", rid, eid, ext, bool(params.get("overwrite")))
+            except Exception as exc:
+                result["error"] = str(exc)
+                return
             try:
                 res = controller.SaveTexture(save, out_path)
                 result["path"] = out_path if os.path.exists(out_path) else None
@@ -295,3 +310,35 @@ class ExportServiceMixin:
             "err": None if result["path"] else {"code": "save_failed", "msg": result["error"]},
             "meta": {"cap": "active", "truncated": False},
         }
+
+    @staticmethod
+    def _resolve_export_path(dest_path, prefix, rid, eid, ext, overwrite):
+        safe_rid = str(rid).replace("::", "_").replace(":", "_").replace("\\", "_").replace("/", "_")
+        eid_part = "_eid{}".format(eid) if eid is not None else ""
+        filename = "{}_{}{}.{}".format(prefix, safe_rid, eid_part, ext)
+
+        if dest_path:
+            path = os.path.abspath(str(dest_path))
+            root, suffix = os.path.splitext(path)
+            is_dir = (
+                os.path.isdir(path)
+                or str(dest_path).endswith(("\\", "/"))
+                or suffix.lower() not in (".png", ".hdr", ".dds")
+            )
+            out_path = os.path.join(path, filename) if is_dir else path
+        else:
+            out_dir = os.path.join(tempfile.gettempdir(), "renderdoc_mcp_exports")
+            out_path = os.path.join(out_dir, filename)
+
+        out_dir = os.path.dirname(out_path)
+        os.makedirs(out_dir, exist_ok=True)
+
+        if overwrite or not os.path.exists(out_path):
+            return out_path
+
+        root, suffix = os.path.splitext(out_path)
+        for idx in range(1, 10000):
+            candidate = "{}_{:03d}{}".format(root, idx, suffix)
+            if not os.path.exists(candidate):
+                return candidate
+        raise RuntimeError("Could not find a non-conflicting export path for {}".format(out_path))

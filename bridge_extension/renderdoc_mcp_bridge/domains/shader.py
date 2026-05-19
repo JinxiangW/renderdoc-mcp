@@ -17,12 +17,139 @@ class ShaderServiceMixin(ShaderSupportMixin):
             return None
 
     @staticmethod
+    def _safe_text(value):
+        try:
+            if value is None:
+                return None
+            text = str(value)
+            return text if text else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _safe_bool(value):
+        try:
+            if value is None:
+                return None
+            return bool(value)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _code_window(lines, offset, max_lines):
+        window = lines[offset : offset + max_lines]
+        line_count = len(lines)
+        return {
+            "line_count": line_count,
+            "offset": offset,
+            "line_start": offset + 1 if line_count else 0,
+            "line_end": offset + len(window),
+            "returned": len(window),
+            "truncated": offset + len(window) < line_count,
+            "lines": [
+                {"line": offset + idx + 1, "text": line}
+                for idx, line in enumerate(window)
+            ],
+            "text": "\n".join(window),
+        }
+
+    @staticmethod
     def _enum_tail(value):
         try:
             text = str(value)
             return text.split(".")[-1] if text else text
         except Exception:
             return None
+
+    def _shader_debug_summary(self, reflection):
+        debug_info = getattr(reflection, "debugInfo", None) if reflection is not None else None
+        if debug_info is None:
+            return {
+                "available": False,
+                "has_source": False,
+                "file_count": 0,
+            }
+
+        files = self._source_files(debug_info)
+        summary = {
+            "available": True,
+            "debuggable": self._safe_bool(getattr(debug_info, "debuggable", None)),
+            "status": self._enum_tail(getattr(debug_info, "debugStatus", None)),
+            "compiler": self._safe_text(getattr(debug_info, "compiler", None)),
+            "encoding": self._enum_tail(getattr(debug_info, "encoding", None)),
+            "base_file": self._safe_text(getattr(debug_info, "editBaseFile", None)),
+            "file_count": len(files),
+            "has_source": any(file_info.get("line_count", 0) > 0 for file_info in files),
+        }
+        return summary
+
+    def _source_files(self, debug_info):
+        files = []
+        try:
+            for idx, source_file in enumerate(getattr(debug_info, "files", []) or []):
+                filename = self._safe_text(getattr(source_file, "filename", None)) or "<source>"
+                contents = getattr(source_file, "contents", None)
+                text = "" if contents is None else str(contents)
+                files.append(
+                    {
+                        "index": idx,
+                        "filename": filename,
+                        "text": text,
+                        "line_count": len(text.splitlines()),
+                    }
+                )
+        except Exception as exc:
+            self._warn_swallow("shader.source_files", exc)
+
+        if any(file_info.get("line_count", 0) > 0 for file_info in files):
+            return files
+
+        try:
+            source_blob = getattr(debug_info, "sourceDebugInformation", None)
+            source_text = "" if source_blob is None else str(source_blob)
+        except Exception as exc:
+            self._warn_swallow("shader.source_debug_information", exc)
+            source_text = ""
+
+        if source_text:
+            files = [
+                {
+                    "index": 0,
+                    "filename": self._safe_text(getattr(debug_info, "editBaseFile", None)) or "<source>",
+                    "text": source_text,
+                    "line_count": len(source_text.splitlines()),
+                }
+            ]
+
+        return files
+
+    @staticmethod
+    def _select_source_file(files, file_query, file_index, preferred_filename):
+        if not files:
+            return None
+
+        query = str(file_query or "").strip().lower()
+        if query:
+            for file_info in files:
+                filename = str(file_info.get("filename", ""))
+                if filename.lower() == query:
+                    return file_info
+            for file_info in files:
+                filename = str(file_info.get("filename", ""))
+                if query in filename.lower():
+                    return file_info
+
+        preferred = str(preferred_filename or "").strip().lower()
+        if preferred:
+            for file_info in files:
+                filename = str(file_info.get("filename", ""))
+                if filename.lower() == preferred:
+                    return file_info
+
+        idx = max(0, int(file_index or 0))
+        if idx >= len(files):
+            idx = len(files) - 1
+        return files[idx]
 
     def _var_type_summary(self, var_type):
         if var_type is None:
@@ -611,6 +738,126 @@ class ShaderServiceMixin(ShaderSupportMixin):
         self.ctx.Replay().BlockInvoke(collect)
         return result
 
+    def get_shader_source(self, params):
+        if not self.ctx.IsCaptureLoaded():
+            return self._no_capture()
+
+        eid = params.get("eid")
+        stage_name = params.get("stage")
+        if eid is None or not stage_name:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "missing_args", "msg": "eid and stage are required"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        offset = max(0, int(params.get("offset", 0) or 0))
+        max_lines = int(params.get("max_lines", 400) or 400)
+        file_query = params.get("file")
+        file_index = int(params.get("file_index", 0) or 0)
+        if max_lines <= 0:
+            max_lines = 400
+
+        eid = int(eid)
+        stage_name = str(stage_name).lower()
+        stage_enum = self._stage_enum_from_name(stage_name)
+        if stage_enum is None:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "bad_stage", "msg": "Unsupported stage"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        result = None
+
+        def collect(controller):
+            nonlocal result
+            controller.SetFrameEvent(eid, True)
+            pipe = controller.GetPipelineState()
+            shader = pipe.GetShader(stage_enum)
+            shader_str = str(shader)
+            if not shader_str or "Null" in shader_str or shader_str == "ResourceId::0":
+                result = {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {"code": "no_shader", "msg": "No shader bound for stage"},
+                    "meta": {"cap": "active", "truncated": False},
+                }
+                return
+
+            entry = pipe.GetShaderEntryPoint(stage_enum)
+            refl = pipe.GetShaderReflection(stage_enum)
+            debug_info = getattr(refl, "debugInfo", None) if refl is not None else None
+            debug_summary = self._shader_debug_summary(refl)
+            source_files = self._source_files(debug_info) if debug_info is not None else []
+
+            if not source_files:
+                result = {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {
+                        "code": "shader_source_unavailable",
+                        "msg": "Shader source/debug information is not available for this shader",
+                    },
+                    "meta": {"cap": "active", "truncated": False},
+                }
+                return
+
+            selected = self._select_source_file(
+                source_files,
+                file_query,
+                file_index,
+                debug_summary.get("base_file"),
+            )
+            if selected is None:
+                result = {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {"code": "shader_source_not_found", "msg": "Requested shader source file was not found"},
+                    "meta": {"cap": "active", "truncated": False},
+                }
+                return
+
+            code = self._code_window(str(selected.get("text", "")).splitlines(), offset, max_lines)
+            result = {
+                "ok": True,
+                "mode": "summary",
+                "data": {
+                    "eid": eid,
+                    "stage": stage_name,
+                    "shader": {
+                        "name": self._shader_name(refl, shader_str),
+                        "entry": entry,
+                    },
+                    "debug": debug_summary,
+                    "files": [
+                        {
+                            "index": int(file_info.get("index", 0) or 0),
+                            "filename": file_info.get("filename"),
+                            "line_count": int(file_info.get("line_count", 0) or 0),
+                        }
+                        for file_info in source_files
+                    ],
+                    "file": {
+                        "index": int(selected.get("index", 0) or 0),
+                        "filename": selected.get("filename"),
+                        **code,
+                    },
+                },
+                "err": None,
+                "meta": {"cap": "active", "truncated": code["truncated"]},
+            }
+
+        self.ctx.Replay().BlockInvoke(collect)
+        return result
+
     def inspect_cbuffer_values(self, params):
         if not self.ctx.IsCaptureLoaded():
             return self._no_capture()
@@ -786,6 +1033,138 @@ class ShaderServiceMixin(ShaderSupportMixin):
                 },
                 "err": None,
                 "meta": {"cap": "active", "truncated": any_truncated},
+            }
+
+        self.ctx.Replay().BlockInvoke(collect)
+        return result
+
+    def get_shader_code(self, params):
+        if not self.ctx.IsCaptureLoaded():
+            return self._no_capture()
+
+        eid = params.get("eid")
+        stage_name = params.get("stage")
+        if eid is None or not stage_name:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "missing_args", "msg": "eid and stage are required"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        offset = max(0, int(params.get("offset", 0) or 0))
+        max_lines = int(params.get("max_lines", 400) or 400)
+        file_query = params.get("file")
+        file_index = int(params.get("file_index", 0) or 0)
+        if max_lines <= 0:
+            max_lines = 400
+
+        eid = int(eid)
+        stage_name = str(stage_name).lower()
+        stage_enum = self._stage_enum_from_name(stage_name)
+        if stage_enum is None:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "bad_stage", "msg": "Unsupported stage"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        result = None
+
+        def collect(controller):
+            nonlocal result
+            controller.SetFrameEvent(eid, True)
+            pipe = controller.GetPipelineState()
+            shader = pipe.GetShader(stage_enum)
+            shader_str = str(shader)
+            if not shader_str or "Null" in shader_str or shader_str == "ResourceId::0":
+                result = {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {"code": "no_shader", "msg": "No shader bound for stage"},
+                    "meta": {"cap": "active", "truncated": False},
+                }
+                return
+
+            entry = pipe.GetShaderEntryPoint(stage_enum)
+            refl = pipe.GetShaderReflection(stage_enum)
+            debug_info = getattr(refl, "debugInfo", None) if refl is not None else None
+            debug_summary = self._shader_debug_summary(refl)
+            source_files = self._source_files(debug_info) if debug_info is not None else []
+
+            if source_files:
+                selected = self._select_source_file(
+                    source_files,
+                    file_query,
+                    file_index,
+                    debug_summary.get("base_file"),
+                )
+                if selected is not None:
+                    code = self._code_window(str(selected.get("text", "")).splitlines(), offset, max_lines)
+                    result = {
+                        "ok": True,
+                        "mode": "summary",
+                        "data": {
+                            "eid": eid,
+                            "stage": stage_name,
+                            "kind": "source",
+                            "shader": {
+                                "name": self._shader_name(refl, shader_str),
+                                "entry": entry,
+                            },
+                            "debug": debug_summary,
+                            "files": [
+                                {
+                                    "index": int(file_info.get("index", 0) or 0),
+                                    "filename": file_info.get("filename"),
+                                    "line_count": int(file_info.get("line_count", 0) or 0),
+                                }
+                                for file_info in source_files
+                            ],
+                            "file": {
+                                "index": int(selected.get("index", 0) or 0),
+                                "filename": selected.get("filename"),
+                            },
+                            "code": code,
+                        },
+                        "err": None,
+                        "meta": {"cap": "active", "truncated": code["truncated"]},
+                    }
+                    return
+
+            disasm = self._shader_disasm(controller, pipe, stage_enum, refl)
+            if disasm.get("error"):
+                result = {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {"code": "disasm_failed", "msg": disasm["error"]},
+                    "meta": {"cap": "active", "truncated": False},
+                }
+                return
+
+            code = self._code_window(disasm.get("text", "").splitlines(), offset, max_lines)
+            result = {
+                "ok": True,
+                "mode": "summary",
+                "data": {
+                    "eid": eid,
+                    "stage": stage_name,
+                    "kind": "disasm",
+                    "shader": {
+                        "name": self._shader_name(refl, shader_str),
+                        "entry": entry,
+                    },
+                    "debug": debug_summary,
+                    "target": disasm.get("target"),
+                    "code": code,
+                },
+                "err": None,
+                "meta": {"cap": "active", "truncated": code["truncated"]},
             }
 
         self.ctx.Replay().BlockInvoke(collect)

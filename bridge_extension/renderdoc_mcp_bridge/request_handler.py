@@ -12,6 +12,10 @@ class RequestHandler:
         self._handlers = {
             "ping": lambda _params: {"status": "ok", "message": "pong"},
             "get_capture_status": capture_service.run,
+            "open_capture": capture_service.open_capture,
+            "find_latest_capture": capture_service.find_latest_capture,
+            "load_latest_capture": capture_service.load_latest_capture,
+            "wait_for_new_capture": capture_service.wait_for_new_capture,
             "find_events": observe_service.run,
             "list_passes": observe_service.list_passes,
             "get_frame_packet": observe_service.get_frame_packet,
@@ -27,6 +31,8 @@ class RequestHandler:
             "inspect_cbuffer_values": observe_service.inspect_cbuffer_values,
             "read_buffer": observe_service.read_buffer,
             "get_shader_disasm": observe_service.get_shader_disasm,
+            "get_shader_source": observe_service.get_shader_source,
+            "get_shader_code": observe_service.get_shader_code,
             "inspect_texture_usage": observe_service.inspect_texture_usage,
             "inspect_mesh": observe_service.inspect_mesh,
         }

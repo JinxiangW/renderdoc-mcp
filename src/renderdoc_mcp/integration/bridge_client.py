@@ -125,12 +125,13 @@ class LiveBridgeClient:
             "params": params or {},
         }
 
+        self._safe_remove(response_file)
         self._write_json_atomic(request_file, payload)
 
         start = time.time()
         while time.time() - start < self.timeout:
             if response_file.exists():
-                raw = json.loads(response_file.read_text(encoding="utf-8"))
+                raw = self._read_json_retry(response_file)
                 self._safe_remove(response_file)
                 if "error" in raw:
                     err = raw["error"]
@@ -138,6 +139,7 @@ class LiveBridgeClient:
                 return raw.get("result")
             time.sleep(0.1)
 
+        self._safe_remove(request_file)
         raise LiveBridgeError("Timed out waiting for live bridge response")
 
     def _select_instance(self, bridge_id: str | None = None) -> LiveBridgeInstance:
@@ -243,3 +245,16 @@ class LiveBridgeClient:
                 path.unlink()
         except OSError:
             pass
+
+    @staticmethod
+    def _read_json_retry(path: Path) -> Any:
+        last_error: json.JSONDecodeError | None = None
+        for _ in range(5):
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                time.sleep(0.05)
+        if last_error is not None:
+            raise last_error
+        return json.loads(path.read_text(encoding="utf-8"))

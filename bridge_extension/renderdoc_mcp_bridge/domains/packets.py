@@ -114,20 +114,21 @@ class PacketServiceMixin:
             return self._no_capture()
 
         limit = int(params.get("limit", 20) or 20)
-        pass_summary = self.list_passes({"limit": limit})
+        pass_summary = self._filtered_frame_passes(params, limit)
         return {
             "ok": True,
             "mode": "summary",
             "data": {
                 "api": str(self.ctx.APIProps().pipelineType),
                 "path": self.ctx.GetCaptureFilename(),
-                "passes": pass_summary["data"]["items"],
+                "passes": pass_summary["items"],
+                "filters": pass_summary["filters"],
             },
             "err": None,
             "meta": {
                 "cap": "active",
-                "truncated": pass_summary["meta"].get("truncated", False),
-                "count": pass_summary["data"]["count"],
+                "truncated": pass_summary["truncated"],
+                "count": pass_summary["count"],
             },
         }
 
@@ -253,6 +254,136 @@ class PacketServiceMixin:
                 }
             )
         return items
+
+    def _filtered_frame_passes(self, params, limit):
+        filters = {
+            "pass_contains": (
+                params.get("pass_name_contains")
+                or params.get("pass_contains")
+                or params.get("marker")
+                or params.get("pass")
+                or ""
+            ),
+            "draw_contains": params.get("draw_name_contains") or params.get("draw_contains") or "",
+            "only_writes_to_resource": params.get("only_writes_to_resource"),
+            "only_reads_resource": params.get("only_reads_resource"),
+            "exclude_editor_only": bool(params.get("exclude_editor_only")),
+        }
+        pass_filter = str(filters["pass_contains"] or "").lower()
+        draw_filter = str(filters["draw_contains"] or "").lower()
+        write_events = self._usage_events_for_resource(filters["only_writes_to_resource"], "write")
+        read_events = self._usage_events_for_resource(filters["only_reads_resource"], "read")
+
+        matched = []
+
+        def visit(actions, marker_stack):
+            for action in actions:
+                if len(action.children) > 0:
+                    name = self._action_name(action)
+                    marker_path = marker_stack + ([name] if name else [])
+                    marker_text = " / ".join([item for item in marker_path if item])
+                    marker_l = marker_text.lower()
+                    if self._frame_pass_matches(
+                        action,
+                        marker_l,
+                        pass_filter,
+                        draw_filter,
+                        write_events,
+                        read_events,
+                        filters["exclude_editor_only"],
+                    ):
+                        item = self._summarize_marker(name, action.eventId, action.children)
+                        if marker_text and marker_text != name:
+                            item["marker_path"] = marker_text
+                        matched.append(item)
+
+                    if visit(action.children, marker_path):
+                        return True
+            return False
+
+        visit(self.ctx.CurRootActions(), [])
+        return {
+            "items": matched[:limit],
+            "count": len(matched),
+            "truncated": len(matched) > limit,
+            "filters": {key: value for key, value in filters.items() if value},
+        }
+
+    def _frame_pass_matches(
+        self,
+        action,
+        marker_l,
+        pass_filter,
+        draw_filter,
+        write_events,
+        read_events,
+        exclude_editor_only,
+    ):
+        if pass_filter and pass_filter not in marker_l:
+            return False
+        if exclude_editor_only and self._is_editor_only_pass(marker_l):
+            return False
+        if draw_filter and not self._pass_has_draw_name(action, draw_filter):
+            return False
+        start, end = self._event_range(action)
+        if write_events is not None and not any(start <= eid <= end for eid in write_events):
+            return False
+        if read_events is not None and not any(start <= eid <= end for eid in read_events):
+            return False
+        return True
+
+    def _pass_has_draw_name(self, action, draw_filter):
+        for child in self._flatten_non_marker_actions(action.children):
+            try:
+                name = self._action_name(child).lower()
+            except Exception:
+                name = ""
+            if draw_filter in name:
+                return True
+        return False
+
+    def _usage_events_for_resource(self, rid, kind):
+        if not rid:
+            return None
+        rid_str = str(rid)
+        events = []
+
+        def collect(controller):
+            target = None
+            for tex in controller.GetTextures():
+                if str(tex.resourceId) == rid_str:
+                    target = tex.resourceId
+                    break
+            if target is None:
+                try:
+                    buffers = controller.GetBuffers()
+                except Exception as exc:
+                    self._warn_swallow("packets.frame_filters.get_buffers", exc)
+                    buffers = []
+                for buf in buffers:
+                    if str(buf.resourceId) == rid_str:
+                        target = buf.resourceId
+                        break
+            if target is None:
+                return
+            for use in controller.GetUsage(target):
+                if self._usage_kind(str(use.usage)) == kind:
+                    events.append(int(use.eventId))
+
+        self.ctx.Replay().BlockInvoke(collect)
+        return set(events)
+
+    @staticmethod
+    def _is_editor_only_pass(marker_l):
+        editor_tokens = [
+            "editorselectionoutlines",
+            "compositeeditorprimitives",
+            "gizmomaterial",
+            "selectionoutline",
+            "editor primitive",
+            "editorprimitive",
+        ]
+        return any(token in marker_l for token in editor_tokens)
 
     def _pass_outputs(self, eid):
         action = self.ctx.GetAction(eid)

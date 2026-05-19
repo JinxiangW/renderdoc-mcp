@@ -128,7 +128,9 @@ class BridgeServer(QObject):
     def _write_json_atomic(path, payload):
         temp_path = "{}.{}.tmp".format(path, uuid.uuid4().hex)
         with open(temp_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False)
+            json.dump(payload, handle, ensure_ascii=False, default=str)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temp_path, path)
 
     def _next_request_file(self):

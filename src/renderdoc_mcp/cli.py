@@ -35,6 +35,36 @@ def main() -> int:
     open_parser = sub.add_parser("open-capture")
     open_parser.add_argument("path")
 
+    context_parser = sub.add_parser("get-capture-context")
+    context_parser.add_argument("--path")
+    context_parser.add_argument("--sidecar")
+
+    hints_parser = sub.add_parser("get-capture-hints")
+    hints_parser.add_argument("--path")
+    hints_parser.add_argument("--sidecar")
+
+    compare_context_parser = sub.add_parser("compare-capture-contexts")
+    compare_context_parser.add_argument("path_a")
+    compare_context_parser.add_argument("path_b")
+    compare_context_parser.add_argument("--sidecar-a")
+    compare_context_parser.add_argument("--sidecar-b")
+
+    compare_pass_parser = sub.add_parser("compare-pass-lists")
+    compare_pass_parser.add_argument("file_a")
+    compare_pass_parser.add_argument("file_b")
+
+    compare_packet_parser = sub.add_parser("compare-packet-artifacts")
+    compare_packet_parser.add_argument("file_a")
+    compare_packet_parser.add_argument("file_b")
+
+    compare_draw_parser = sub.add_parser("compare-draw-packets")
+    compare_draw_parser.add_argument("file_a")
+    compare_draw_parser.add_argument("file_b")
+
+    compare_texuse_parser = sub.add_parser("compare-texture-usage-artifacts")
+    compare_texuse_parser.add_argument("file_a")
+    compare_texuse_parser.add_argument("file_b")
+
     sub.add_parser("get-capture-status")
 
     args = parser.parse_args()
@@ -44,6 +74,20 @@ def main() -> int:
         res = adapter.list_captures(args.root, args.limit)
     elif args.cmd == "open-capture":
         res = adapter.open_capture(args.path)
+    elif args.cmd == "get-capture-context":
+        res = adapter.get_capture_context(args.path, args.sidecar)
+    elif args.cmd == "get-capture-hints":
+        res = adapter.get_capture_hints(args.path, args.sidecar)
+    elif args.cmd == "compare-capture-contexts":
+        res = adapter.compare_capture_contexts(args.path_a, args.path_b, args.sidecar_a, args.sidecar_b)
+    elif args.cmd == "compare-pass-lists":
+        res = adapter.compare_pass_lists(args.file_a, args.file_b)
+    elif args.cmd == "compare-packet-artifacts":
+        res = adapter.compare_packet_artifacts(args.file_a, args.file_b)
+    elif args.cmd == "compare-draw-packets":
+        res = adapter.compare_draw_packets(args.file_a, args.file_b)
+    elif args.cmd == "compare-texture-usage-artifacts":
+        res = adapter.compare_texture_usage_artifacts(args.file_a, args.file_b)
     else:
         res = adapter.get_capture_status()
 

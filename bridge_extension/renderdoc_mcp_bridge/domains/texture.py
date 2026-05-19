@@ -9,6 +9,8 @@ class TextureServiceMixin:
         rid = params.get("rid")
         name_filter = params.get("name")
         limit = int(params.get("limit", 10) or 10)
+        eid_min = int(params.get("eid_min", 0) or 0)
+        eid_max = int(params.get("eid_max", 0) or 0)
         result = None
 
         def collect(controller):
@@ -109,7 +111,15 @@ class TextureServiceMixin:
                     self._warn_swallow("texture.ctx.depth_target", exc)
                 return contexts
 
+            filtered_usage_items = []
             for use in usage_items:
+                if eid_min and int(use.eventId) < eid_min:
+                    continue
+                if eid_max and int(use.eventId) > eid_max:
+                    continue
+                filtered_usage_items.append(use)
+
+            for use in filtered_usage_items:
                 usage_name = str(use.usage)
                 rw_type = self._usage_kind(usage_name)
                 if rw_type == "read":
@@ -179,12 +189,17 @@ class TextureServiceMixin:
                         "write": writes,
                     },
                     "items": items,
+                    "event_range": {
+                        "eid_min": eid_min or None,
+                        "eid_max": eid_max or None,
+                    },
                 },
                 "err": None,
                 "meta": {
                     "cap": "active",
                     "truncated": truncated,
-                    "count": len(usage_items),
+                    "count": len(filtered_usage_items),
+                    "total_count": len(usage_items),
                 },
             }
 
@@ -202,8 +217,18 @@ class TextureServiceMixin:
         if name_filter:
             name_l = str(name_filter).lower()
             for tex in textures:
-                resource_name = controller.GetResourceName(tex.resourceId) or ""
-                if name_l in resource_name.lower():
+                resource_name = ""
+                try:
+                    resource_name = controller.GetResourceName(tex.resourceId) or ""
+                except Exception:
+                    resource_name = ""
+                tex_name = str(getattr(tex, "name", "") or "")
+                rid_str = str(tex.resourceId)
+                if (
+                    name_l in resource_name.lower()
+                    or name_l in tex_name.lower()
+                    or name_l in rid_str.lower()
+                ):
                     return tex
         if not rid and not name_filter:
             return None

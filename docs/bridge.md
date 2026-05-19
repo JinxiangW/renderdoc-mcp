@@ -32,6 +32,10 @@ so an already-running qrenderdoc does not break until it is restarted.
 - `ping`
 - `get_capture_status`
 - `list_live_windows`
+- `open_capture`
+- `find_latest_capture`
+- `load_latest_capture`
+- `wait_for_new_capture`
 - `find_events`
 
 ## Live Window Selection

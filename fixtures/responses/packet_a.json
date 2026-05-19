@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "mode": "summary",
+  "data": {
+    "eid": 4211,
+    "api": "D3D12",
+    "pass": "BasePass",
+    "ia": {
+      "topo": "TriangleList"
+    },
+    "sh": {
+      "vs": {"sid": "s101", "name": "BasePassVS", "entry": "main"},
+      "ps": {"sid": "s205", "name": "BasePassPS", "entry": "main"}
+    },
+    "res": {
+      "srv": 12,
+      "uav": 1,
+      "cbv": 8,
+      "smp": 6,
+      "rt": 4,
+      "ds": 1
+    }
+  },
+  "err": null,
+  "meta": {
+    "cap": "active",
+    "truncated": false
+  }
+}
