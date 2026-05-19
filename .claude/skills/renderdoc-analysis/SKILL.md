@@ -91,7 +91,7 @@ Default path:
 3. For draws, `inspect_mesh` is the default, not optional. You need vertex attributes plus vertex/index buffer bindings before explaining the shader. For dispatches, mark geometry as not applicable.
 4. For draws, inspect both `vs` and `ps` unless one stage is proven irrelevant. For dispatches, inspect `cs`.
 5. Create or reuse the action working directory before code reading. If the user supplied a directory, use it. Otherwise use the current report/bundle directory for that action, or `.state/action_reverse/<capture-or-session>/eid_<eid>/`.
-6. Decompile the inspected action shader stages with Ruri to HLSL and export them into the action working directory before writing the reverse report. For draws, decompile `vs` and `ps` unless one stage is proven irrelevant; for dispatches, decompile `cs`. Name files predictably, for example `eid_<eid>_<stage>_<shader-name-or-sid>.hlsl`. If Ruri is unavailable or decompilation fails, record the reason and continue with `get_shader_disasm`; do not skip this silently.
+6. Decompile the inspected action shader stages with Ruri to HLSL and export them into the action working directory before writing the reverse report. For draws, decompile `vs` and `ps` unless one stage is proven irrelevant; for dispatches, decompile `cs`. Name files predictably, for example `eid_<eid>_<stage>_<shader-name-or-sid>.hlsl`. Keep the exported HLSL as the primary artifact. If Ruri is unavailable or decompilation fails, record the reason and continue with `get_shader_disasm`; do not skip this silently.
 7. Build a binding inventory before drawing conclusions:
    - `inspect_shader.bind`
    - `inspect_shader.bindings`
@@ -99,7 +99,7 @@ Default path:
    - `inspect_shader.sig`
    - draw-packet `io`
    - mesh `vb/ib` data for draw events
-8. Annotate the exported HLSL, or an adjacent `<shader>.notes.md`, before finalizing. The annotation must split code by large functional blocks and add concise comments for:
+8. Annotate the exported HLSL, or an adjacent `<shader>.notes.md`, before finalizing. Preserve the decompiled code structure and identifiers. Do not rewrite it into a new pseudocode shader, do not construct helper functions, and do not invent variable/function names unless accurate metadata or direct shader definitions provide those names. Use original decompiler names, resource slots, RIDs, or short comments instead. The annotation must split code by large functional blocks only; avoid dense line-by-line comments. Add concise comments for:
    - declaration / resource setup
    - vertex/input reconstruction or coordinate prep
    - texture loads, sampling, decode, and masks
@@ -112,7 +112,7 @@ Default path:
    - texture sampling and decode blocks
    - lighting or material evaluation blocks
    - output packing / final writes
-11. Use HLSL block names and disassembly line ranges explicitly. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries. If HLSL and disassembly disagree, trust binding/IO facts and disassembly first, and state the mismatch.
+11. Use HLSL block comments and disassembly line ranges explicitly. Report findings as ranges such as `lines 1-40`, `41-96`, not just free-form summaries. If decompiled code has only generated identifiers, refer to original generated names or slots rather than renaming them. If HLSL and disassembly disagree, trust binding/IO facts and disassembly first, and state the mismatch.
 12. Treat resource semantics as unproven until tied to actual code use. Resource name, format, dimensions, producer evidence, and downstream use all matter.
 13. Trace producer evidence for semantic key inputs before assigning a narrow meaning. Key inputs include resources or channels used for branches, masks, alpha/transmittance, depth reconstruction, GBuffer decode, lighting lookup, or final output modulation. Default to at most 3 key inputs and one producer hop unless the user explicitly asks for deeper tracing.
    - Start with `inspect_texture_usage` for the resource and use `producer`, `last_write`, `first_read_ctx`, and `first_ps_read_ctx` as evidence.
@@ -129,7 +129,9 @@ Default path:
 
 Reverse-action acceptance bar:
 - export inspected shader stages to HLSL in the action working directory, or state why this failed
-- split and comment the HLSL by large functional blocks before reporting
+- split and comment the exported HLSL by large functional blocks before reporting
+- keep the exported HLSL close to the decompiler result; do not replace it with a handcrafted pseudocode shader or self-built helper functions
+- do not invent semantic variable/function names without accurate metadata or direct definitions; use generated names, slots, RIDs, or comments
 - list the key `t#`, `u#`, `cb#`, and `vb/ib` inputs
 - annotate important input resources with slot, RID/name, format/dimensions when available, actual code role, and confidence status
 - explain what each important resource is doing, not just that it is bound
