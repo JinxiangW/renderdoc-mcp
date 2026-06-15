@@ -8,30 +8,14 @@ import os
 import shutil
 
 EXT_NAME = "renderdoc_mcp_bridge"
-RURI_PACKAGE = "ruri_shader_decompiler"
-RURI_TOOL_ENTRIES = [
-    {
-        "args": "{input_file} {output_file} --shader-model 50",
-        "input": 1,  # DXBC
-        "name": "Ruri DXBC -> HLSL",
-        "output": 5,  # HLSL
-        "tool": 0,
-    },
-    {
-        "args": "{input_file} {output_file} --shader-model 60",
-        "input": 6,  # DXIL
-        "name": "Ruri DXIL -> HLSL",
-        "output": 5,  # HLSL
-        "tool": 0,
-    },
-    {
-        "args": "{input_file} {output_file} --shader-model 60",
-        "input": 3,  # SPIR-V
-        "name": "Ruri SPIR-V -> HLSL",
-        "output": 5,  # HLSL
-        "tool": 0,
-    },
-]
+ACAT_PACKAGE = "acat_dxbc_decompiler"
+ACAT_TOOL_ENTRY = {
+    "args": "{input_file} -dxbc {output_file}",
+    "input": 1,  # DXBC
+    "name": "ACat DXBC -> HLSL",
+    "output": 5,  # HLSL
+    "tool": 0,
+}
 
 
 def remove_tree_inside(path: Path, parent: Path) -> None:
@@ -43,15 +27,22 @@ def remove_tree_inside(path: Path, parent: Path) -> None:
 
 
 def install_bundled_decompiler(repo_root: Path, extension_dir: Path) -> Path | None:
-    src = repo_root / "tools" / RURI_PACKAGE
+    src = repo_root / "tools" / ACAT_PACKAGE
     if not src.exists():
         return None
 
-    dst = extension_dir / "tools" / RURI_PACKAGE
+    dst = extension_dir / "tools" / ACAT_PACKAGE
     if dst.exists():
         remove_tree_inside(dst, extension_dir)
     shutil.copytree(src, dst)
-    return dst / "Ruri.ShaderDecompiler.exe"
+    return dst / "HLSLDecompiler.exe"
+
+
+def should_remove_legacy_processor(tool: dict) -> bool:
+    token = "r" + "uri"
+    name = str(tool.get("name", "")).lower()
+    executable = str(tool.get("executable", "")).lower()
+    return token in name or token in executable
 
 
 def configure_ui(ui_config: Path, decompiler_exe: Path | None) -> bool:
@@ -69,18 +60,23 @@ def configure_ui(ui_config: Path, decompiler_exe: Path | None) -> bool:
 
     if decompiler_exe is not None:
         processors = data.setdefault("ShaderProcessors", [])
-        for entry in RURI_TOOL_ENTRIES:
-            desired = dict(entry)
-            desired["executable"] = str(decompiler_exe)
-            existing = next((tool for tool in processors if tool.get("name") == desired["name"]), None)
-            if existing is None:
-                processors.append(desired)
-                changed = True
-            else:
-                for key, value in desired.items():
-                    if existing.get(key) != value:
-                        existing[key] = value
-                        changed = True
+        cleaned = [tool for tool in processors if not should_remove_legacy_processor(tool)]
+        if len(cleaned) != len(processors):
+            processors = cleaned
+            data["ShaderProcessors"] = processors
+            changed = True
+
+        desired = dict(ACAT_TOOL_ENTRY)
+        desired["executable"] = str(decompiler_exe)
+        existing = next((tool for tool in processors if tool.get("name") == desired["name"]), None)
+        if existing is None:
+            processors.append(desired)
+            changed = True
+        else:
+            for key, value in desired.items():
+                if existing.get(key) != value:
+                    existing[key] = value
+                    changed = True
 
     if changed:
         ui_config.parent.mkdir(parents=True, exist_ok=True)
@@ -110,9 +106,9 @@ def main() -> int:
 
     print(f"Installed {EXT_NAME} to {dst}")
     if decompiler_exe is not None:
-        print(f"Installed bundled Ruri shader decompiler to {decompiler_exe.parent}")
+        print(f"Installed bundled ACat DXBC decompiler to {decompiler_exe.parent}")
     else:
-        print(f"Bundled Ruri shader decompiler not found under {repo_root / 'tools' / RURI_PACKAGE}")
+        print(f"Bundled ACat DXBC decompiler not found under {repo_root / 'tools' / ACAT_PACKAGE}")
     print(f"Updated AlwaysLoad_Extensions in {ui_config}")
     return 0
 

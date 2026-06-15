@@ -2,6 +2,10 @@
 
 import hashlib
 import os
+import shlex
+import shutil
+import subprocess
+import tempfile
 
 import renderdoc as rd
 
@@ -149,6 +153,126 @@ class ShaderServiceMixin(ShaderSupportMixin):
             return getattr(rd.ShaderEncoding, attr)
         except Exception:
             return None
+
+    @staticmethod
+    def _shader_encoding_int(value):
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _trim_process_output(value, limit=4000):
+        if value is None:
+            return ""
+        if isinstance(value, (bytes, bytearray)):
+            text = bytes(value).decode("utf-8", errors="replace")
+        else:
+            text = str(value)
+        if len(text) > limit:
+            return text[:limit] + "\n...<truncated>"
+        return text
+
+    @staticmethod
+    def _replace_processor_placeholders(token, input_file, output_file):
+        return (
+            str(token)
+            .replace("{input_file}", input_file)
+            .replace("{output_file}", output_file)
+        )
+
+    @classmethod
+    def _processor_argv(cls, executable, args, input_file, output_file):
+        try:
+            tokens = shlex.split(str(args or ""), posix=True)
+        except Exception:
+            tokens = str(args or "").split()
+
+        argv = [str(executable)]
+        for token in tokens:
+            argv.append(cls._replace_processor_placeholders(token, input_file, output_file))
+        return argv
+
+    @staticmethod
+    def _processor_uses_output_file(args):
+        return "{output_file}" in str(args or "")
+
+    def _shader_processors(self):
+        try:
+            processors = getattr(self.ctx.Config(), "ShaderProcessors", [])
+        except Exception:
+            processors = []
+
+        out = []
+        for tool in processors or []:
+            in_enc = self._shader_encoding_int(getattr(tool, "input", None))
+            out_enc = self._shader_encoding_int(getattr(tool, "output", None))
+            executable = self._safe_text(getattr(tool, "executable", None))
+            if in_enc is None or out_enc is None or not executable:
+                continue
+            out.append(
+                {
+                    "name": self._safe_text(getattr(tool, "name", None)) or executable,
+                    "executable": executable,
+                    "args": self._safe_text(getattr(tool, "args", None)) or "",
+                    "input": in_enc,
+                    "output": out_enc,
+                }
+            )
+        return out
+
+    def _select_hlsl_decompiler(self, input_encoding, tool_name=None):
+        input_int = self._shader_encoding_int(input_encoding)
+        hlsl_int = self._shader_encoding_int(self._shader_encoding_from_name("hlsl"))
+        if input_int is None or hlsl_int is None:
+            return None
+
+        candidates = [
+            tool
+            for tool in self._shader_processors()
+            if tool.get("input") == input_int and tool.get("output") == hlsl_int
+        ]
+        if not candidates:
+            return None
+
+        query = str(tool_name or "").strip().lower()
+        if query:
+            for tool in candidates:
+                if str(tool.get("name", "")).lower() == query:
+                    return tool
+            for tool in candidates:
+                if query in str(tool.get("name", "")).lower():
+                    return tool
+            return None
+
+        for tool in candidates:
+            name = str(tool.get("name", "")).lower()
+            executable = str(tool.get("executable", "")).lower()
+            if "acat" in name or "hlsldecompiler" in executable:
+                return tool
+
+        return candidates[0]
+
+    @staticmethod
+    def _write_atomic_bytes(path, data):
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(
+            prefix=os.path.basename(path) + ".",
+            suffix=".tmp",
+            dir=parent or None,
+        )
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+            os.replace(temp_path, path)
+        except Exception:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+            raise
 
     @staticmethod
     def _append_compile_flag(flags, name, value):
@@ -1206,6 +1330,261 @@ class ShaderServiceMixin(ShaderSupportMixin):
 
         self.ctx.Replay().BlockInvoke(collect)
         return result
+
+    def export_shader_decompiled_hlsl(self, params):
+        if not self.ctx.IsCaptureLoaded():
+            return self._no_capture()
+
+        eid = params.get("eid")
+        stage_name = params.get("stage")
+        dest = params.get("dest")
+        if eid is None or not stage_name or not dest:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "missing_args", "msg": "eid, stage, and dest are required"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        eid = int(eid)
+        stage_name = str(stage_name).lower()
+        stage_enum = self._stage_enum_from_name(stage_name)
+        if stage_enum is None:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "bad_stage", "msg": "Unsupported stage"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        dest = os.path.abspath(str(dest))
+        overwrite = bool(params.get("overwrite", False))
+        if os.path.exists(dest) and not overwrite:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "dest_exists", "msg": "Destination already exists; pass overwrite=true"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        shader_data = {}
+        collect_error = None
+
+        def collect(controller):
+            nonlocal shader_data, collect_error
+            controller.SetFrameEvent(eid, True)
+            pipe = controller.GetPipelineState()
+            shader = pipe.GetShader(stage_enum)
+            shader_str = str(shader)
+            if not shader_str or "Null" in shader_str or shader_str == "ResourceId::0":
+                collect_error = {"code": "no_shader", "msg": "No shader bound for stage"}
+                return
+
+            refl = pipe.GetShaderReflection(stage_enum)
+            try:
+                raw = bytes(getattr(refl, "rawBytes", b"") or b"")
+            except Exception:
+                try:
+                    raw = bytearray(getattr(refl, "rawBytes", []) or [])
+                    raw = bytes(raw)
+                except Exception as exc:
+                    collect_error = {"code": "raw_bytes_failed", "msg": str(exc)}
+                    return
+
+            if not raw:
+                collect_error = {"code": "empty_raw_bytes", "msg": "Shader reflection returned no raw bytes"}
+                return
+
+            shader_data = {
+                "shader": self._shader_info(refl, shader, pipe.GetShaderEntryPoint(stage_enum)),
+                "encoding": getattr(refl, "encoding", None),
+                "raw": raw,
+            }
+
+        self.ctx.Replay().BlockInvoke(collect)
+        if collect_error is not None:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": collect_error,
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        input_encoding = shader_data.get("encoding")
+        processor = self._select_hlsl_decompiler(input_encoding, params.get("processor") or params.get("tool_name"))
+        if processor is None:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {
+                    "code": "hlsl_decompiler_not_found",
+                    "msg": "No RenderDoc shader processor registered for {} -> HLSL".format(
+                        self._shader_encoding_name(input_encoding)
+                    ),
+                },
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        executable = processor.get("executable")
+        if not executable or not os.path.exists(executable):
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {
+                    "code": "decompiler_executable_not_found",
+                    "msg": str(executable or ""),
+                },
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        try:
+            timeout = float(params.get("timeout", 60.0) or 60.0)
+        except Exception:
+            return {
+                "ok": False,
+                "mode": "summary",
+                "data": None,
+                "err": {"code": "bad_timeout", "msg": "timeout must be a number"},
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        raw = shader_data["raw"]
+        temp_dir = tempfile.mkdtemp(prefix="renderdoc_mcp_shader_")
+        try:
+            input_ext = {
+                "DXBC": ".dxbc",
+                "DXIL": ".dxil",
+                "SPIRV": ".spv",
+            }.get(self._shader_encoding_name(input_encoding), ".bin")
+            input_path = os.path.join(temp_dir, "shader" + input_ext)
+            output_path = os.path.join(temp_dir, "shader.hlsl")
+            with open(input_path, "wb") as handle:
+                handle.write(raw)
+
+            argv = self._processor_argv(executable, processor.get("args", ""), input_path, output_path)
+            try:
+                completed = subprocess.run(
+                    argv,
+                    cwd=os.path.dirname(executable) or None,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                return {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {
+                        "code": "decompile_timeout",
+                        "msg": "Decompiler timed out after {} seconds".format(timeout),
+                        "stdout": self._trim_process_output(getattr(exc, "stdout", None)),
+                        "stderr": self._trim_process_output(getattr(exc, "stderr", None)),
+                    },
+                    "meta": {"cap": "active", "truncated": False},
+                }
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {"code": "decompile_failed", "msg": str(exc)},
+                    "meta": {"cap": "active", "truncated": False},
+                }
+
+            if completed.returncode != 0:
+                return {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {
+                        "code": "decompile_failed",
+                        "msg": "Decompiler exited with code {}".format(completed.returncode),
+                        "stdout": self._trim_process_output(completed.stdout),
+                        "stderr": self._trim_process_output(completed.stderr),
+                    },
+                    "meta": {"cap": "active", "truncated": False},
+                }
+
+            if self._processor_uses_output_file(processor.get("args", "")):
+                if not os.path.exists(output_path):
+                    return {
+                        "ok": False,
+                        "mode": "summary",
+                        "data": None,
+                        "err": {
+                            "code": "decompile_output_missing",
+                            "msg": "Decompiler did not write the expected output file",
+                            "stdout": self._trim_process_output(completed.stdout),
+                            "stderr": self._trim_process_output(completed.stderr),
+                        },
+                        "meta": {"cap": "active", "truncated": False},
+                    }
+                with open(output_path, "rb") as handle:
+                    hlsl = handle.read()
+            else:
+                hlsl = completed.stdout or b""
+
+            if not hlsl:
+                return {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {
+                        "code": "empty_decompiled_hlsl",
+                        "msg": "Decompiler produced no HLSL output",
+                        "stderr": self._trim_process_output(completed.stderr),
+                    },
+                    "meta": {"cap": "active", "truncated": False},
+                }
+
+            try:
+                self._write_atomic_bytes(dest, hlsl)
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "mode": "summary",
+                    "data": None,
+                    "err": {"code": "write_failed", "msg": str(exc)},
+                    "meta": {"cap": "active", "truncated": False},
+                }
+        finally:
+            try:
+                shutil.rmtree(temp_dir)
+            except OSError:
+                pass
+
+        text = hlsl.decode("utf-8", errors="replace")
+        return {
+            "ok": True,
+            "mode": "summary",
+            "data": {
+                "eid": eid,
+                "stage": stage_name,
+                "shader": shader_data.get("shader"),
+                "source_encoding": self._shader_encoding_name(input_encoding),
+                "dest": dest,
+                "processor": {
+                    "name": processor.get("name"),
+                    "input": self._shader_encoding_name(processor.get("input")),
+                    "output": self._shader_encoding_name(processor.get("output")),
+                    "executable": processor.get("executable"),
+                },
+                "byte_count": len(hlsl),
+                "line_count": len(text.splitlines()),
+                "sha256": hashlib.sha256(hlsl).hexdigest(),
+                "raw_byte_count": len(raw),
+                "raw_sha256": hashlib.sha256(raw).hexdigest(),
+            },
+            "err": None,
+            "meta": {"cap": "active", "truncated": False},
+        }
 
     def get_shader_source(self, params):
         if not self.ctx.IsCaptureLoaded():

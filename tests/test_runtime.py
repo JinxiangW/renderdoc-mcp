@@ -66,6 +66,7 @@ class RuntimeTests(unittest.TestCase):
         registry = runtime.LiveToolRegistry(client=object())
 
         self.assertIn("export_shader_raw_bytes", registry.handlers)
+        self.assertIn("export_shader_decompiled_hlsl", registry.handlers)
 
     def test_live_registry_routes_shader_raw_export_tool(self):
         client = _RecordingClient()
@@ -88,6 +89,42 @@ class RuntimeTests(unittest.TestCase):
                 (
                     "export_shader_raw_bytes",
                     {"eid": 8539, "stage": "ps", "dest": "D:/out/eid_8539_ps.dxbc"},
+                    "win-a",
+                )
+            ],
+        )
+
+    def test_live_registry_routes_shader_hlsl_export_tool(self):
+        client = _RecordingClient()
+        registry = runtime.LiveToolRegistry(client=client)
+
+        result = registry.invoke(
+            "export_shader_decompiled_hlsl",
+            {
+                "eid": 8539,
+                "stage": "ps",
+                "dest": "D:/out/eid_8539_ps.hlsl",
+                "processor": "ACat DXBC -> HLSL",
+                "overwrite": True,
+                "timeout": 30.0,
+                "window_id": "win-a",
+            },
+        )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(
+            client.calls,
+            [
+                (
+                    "export_shader_decompiled_hlsl",
+                    {
+                        "eid": 8539,
+                        "stage": "ps",
+                        "dest": "D:/out/eid_8539_ps.hlsl",
+                        "processor": "ACat DXBC -> HLSL",
+                        "overwrite": True,
+                        "timeout": 30.0,
+                    },
                     "win-a",
                 )
             ],

@@ -32,6 +32,7 @@ class RequestHandler:
             "apply_shader_edit": observe_service.apply_shader_edit,
             "revert_shader_edit": observe_service.revert_shader_edit,
             "export_shader_raw_bytes": observe_service.export_shader_raw_bytes,
+            "export_shader_decompiled_hlsl": observe_service.export_shader_decompiled_hlsl,
             "inspect_cbuffer_values": observe_service.inspect_cbuffer_values,
             "read_buffer": observe_service.read_buffer,
             "get_shader_disasm": observe_service.get_shader_disasm,

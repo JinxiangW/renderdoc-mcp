@@ -4,11 +4,11 @@ from .request_handler import RequestHandler
 from .server import BridgeServer
 
 try:
-    from .ruri_shader_processors import install_ruri_shader_processors
-    _ruri_import_error = None
+    from .acat_dxbc_processor import install_acat_dxbc_processor
+    _acat_import_error = None
 except Exception as exc:
-    install_ruri_shader_processors = None
-    _ruri_import_error = exc
+    install_acat_dxbc_processor = None
+    _acat_import_error = exc
 
 _ctx = None
 _server = None
@@ -18,13 +18,13 @@ def register(version, ctx):
     """RenderDoc extension entrypoint."""
     global _ctx, _server
     _ctx = ctx
-    if install_ruri_shader_processors is not None:
+    if install_acat_dxbc_processor is not None:
         try:
-            install_ruri_shader_processors(ctx)
+            install_acat_dxbc_processor(ctx)
         except Exception as exc:
-            print("[renderdoc_mcp_bridge] failed to register Ruri shader processors: {}".format(exc))
-    elif _ruri_import_error is not None:
-        print("[renderdoc_mcp_bridge] failed to import Ruri shader processor installer: {}".format(_ruri_import_error))
+            print("[renderdoc_mcp_bridge] failed to register ACat DXBC shader processor: {}".format(exc))
+    elif _acat_import_error is not None:
+        print("[renderdoc_mcp_bridge] failed to import ACat DXBC processor installer: {}".format(_acat_import_error))
     handler = RequestHandler(ctx)
     _server = BridgeServer(handler)
     _server.start()

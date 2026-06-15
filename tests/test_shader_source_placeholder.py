@@ -1,8 +1,11 @@
 import importlib
+from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 class _FakeShaderCompileFlag:
@@ -78,8 +81,9 @@ class _FakeReplay:
 
 
 class _FakeCtx:
-    def __init__(self, reflection):
+    def __init__(self, reflection, processors=None):
         self._reflection = reflection
+        self._processors = processors or []
 
     def IsCaptureLoaded(self):
         return True
@@ -92,6 +96,9 @@ class _FakeCtx:
 
     def GetResourceName(self, _rid):
         return ""
+
+    def Config(self):
+        return SimpleNamespace(ShaderProcessors=self._processors)
 
 
 class _TestShaderService(ShaderServiceMixin, BridgeService):
@@ -168,3 +175,66 @@ class ShaderSourcePlaceholderTests(unittest.TestCase):
         self.assertEqual(result["data"]["kind"], "source")
         self.assertEqual(result["data"]["file"]["filename"], "DeferredLighting.ps.hlsl")
         self.assertIn("float4 main()", result["data"]["code"]["text"])
+
+    def test_export_shader_decompiled_hlsl_uses_registered_processor(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exe = Path(temp_dir) / "fake_decompiler.exe"
+            exe.write_bytes(b"")
+            dest = Path(temp_dir) / "shader.hlsl"
+            processor = SimpleNamespace(
+                name="Fake DXBC -> HLSL",
+                executable=str(exe),
+                args="{input_file} {output_file} --shader-model 50",
+                input=1,
+                output=5,
+            )
+            reflection = SimpleNamespace(
+                rawBytes=b"DXBC1234",
+                encoding=1,
+                entryPoint="main",
+                debugInfo=None,
+            )
+            service = _TestShaderService(_FakeCtx(reflection, processors=[processor]))
+
+            def fake_run(argv, **_kwargs):
+                output_path = Path(argv[2])
+                output_path.write_text("float4 main() : SV_Target { return 1; }\n", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+            with patch("bridge_extension.renderdoc_mcp_bridge.domains.shader.subprocess.run", fake_run):
+                result = service.export_shader_decompiled_hlsl(
+                    {
+                        "eid": 14487,
+                        "stage": "ps",
+                        "dest": str(dest),
+                    }
+                )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["data"]["source_encoding"], "DXBC")
+            self.assertEqual(result["data"]["processor"]["name"], "Fake DXBC -> HLSL")
+            self.assertEqual(result["data"]["dest"], str(dest.resolve()))
+            self.assertEqual(result["data"]["line_count"], 1)
+            self.assertTrue(dest.exists())
+
+    def test_hlsl_decompiler_selection_prefers_acat_by_default(self):
+        service = _TestShaderService(_FakeCtx(SimpleNamespace()))
+        generic_tool = {
+            "name": "Generic DXBC -> HLSL",
+            "executable": "C:/Tools/OtherDecompiler.exe",
+            "args": "{input_file} {output_file}",
+            "input": 1,
+            "output": 5,
+        }
+        acat_tool = {
+            "name": "ACat DXBC -> HLSL",
+            "executable": "C:/Tools/HLSLDecompiler.exe",
+            "args": "{input_file} -dxbc {output_file}",
+            "input": 1,
+            "output": 5,
+        }
+
+        with patch.object(service, "_shader_processors", return_value=[generic_tool, acat_tool]):
+            selected = service._select_hlsl_decompiler(1)
+
+        self.assertEqual(selected, acat_tool)
