@@ -13,6 +13,7 @@ class RequestHandler:
             "ping": lambda _params: {"status": "ok", "message": "pong"},
             "get_capture_status": capture_service.run,
             "open_capture": capture_service.open_capture,
+            "close_capture": capture_service.close_capture,
             "find_latest_capture": capture_service.find_latest_capture,
             "load_latest_capture": capture_service.load_latest_capture,
             "wait_for_new_capture": capture_service.wait_for_new_capture,

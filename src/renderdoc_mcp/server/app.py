@@ -64,8 +64,11 @@ OFFLINE_BOOTSTRAP_TOOLS: tuple[ToolSpec, ...] = (
 
 LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("list_live_windows", True, "List active qrenderdoc bridge windows and their window_id values."),
+    ToolSpec("attach_qrenderdoc", True, "Diagnose and attach to an active qrenderdoc bridge window."),
+    ToolSpec("connect_live_bridge", True, "Alias for attach_qrenderdoc with explicit bridge diagnostics."),
     ToolSpec("get_capture_status", True, "Return current capture status from the live bridge."),
     ToolSpec("open_capture", True, "Load a capture by path into the live qrenderdoc session."),
+    ToolSpec("close_capture", True, "Close the active capture in one qrenderdoc bridge window."),
     ToolSpec("find_latest_capture", True, "Find the newest .rdc capture under a directory."),
     ToolSpec("load_latest_capture", True, "Load the newest .rdc capture into the live qrenderdoc session."),
     ToolSpec("wait_for_new_capture", True, "Wait for a newer .rdc capture and load it into qrenderdoc."),
@@ -85,6 +88,7 @@ LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
         "Compare UE-side context metadata between two captures.",
     ),
     ToolSpec("find_events", True, "Find compact event matches in the live capture."),
+    ToolSpec("search_draw_events_by_ue_hint", True, "Search live draw events using UE actor, asset, material, or component hints."),
     ToolSpec("list_passes", True, "List pass markers in the live capture."),
     ToolSpec(
         "inspect_pipeline_state",

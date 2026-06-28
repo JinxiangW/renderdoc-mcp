@@ -23,11 +23,48 @@ class _FakeOfflineRegistry:
 
 
 class _RecordingClient:
-    def __init__(self):
+    def __init__(self, windows=None):
         self.calls = []
+        self.windows = windows or [
+            {
+                "window_id": "win-a",
+                "bridge_id": "win-a",
+                "pid": 1234,
+                "loaded": True,
+                "capture_path": "D:/caps/a.rdc",
+            }
+        ]
+
+    def available(self, bridge_id=None):
+        return True
+
+    def list_windows(self):
+        return {
+            "ok": True,
+            "mode": "summary",
+            "data": {"count": len(self.windows), "windows": self.windows},
+            "err": None,
+            "meta": {"cap": None, "truncated": False},
+        }
 
     def call(self, method, params, window_id=None):
         self.calls.append((method, params, window_id))
+        if method == "find_events":
+            return {
+                "ok": True,
+                "data": {
+                    "items": [
+                        {
+                            "eid": len(self.calls),
+                            "name": "DrawIndexed",
+                            "type": "Draw",
+                            "marker": params.get("q"),
+                        }
+                    ]
+                },
+            }
+        if method == "get_capture_status":
+            return {"ok": True, "data": {"loaded": True, "path": "D:/caps/a.rdc"}}
         return {"ok": True}
 
 
@@ -42,6 +79,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["err"]["code"], "live_bridge_unavailable")
+        self.assertIn("next_actions", payload["data"])
 
     def test_live_registry_exposes_buffer_value_tools(self):
         registry = runtime.LiveToolRegistry(client=object())
@@ -49,6 +87,10 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("inspect_cbuffer_values", registry.handlers)
         self.assertIn("read_buffer", registry.handlers)
         self.assertIn("list_live_windows", registry.handlers)
+        self.assertIn("attach_qrenderdoc", registry.handlers)
+        self.assertIn("connect_live_bridge", registry.handlers)
+        self.assertIn("close_capture", registry.handlers)
+        self.assertIn("search_draw_events_by_ue_hint", registry.handlers)
 
     def test_live_registry_exposes_event_output_export_tool(self):
         registry = runtime.LiveToolRegistry(client=object())
@@ -92,3 +134,41 @@ class RuntimeTests(unittest.TestCase):
                 )
             ],
         )
+
+    def test_attach_qrenderdoc_checks_selected_window_status(self):
+        client = _RecordingClient()
+        registry = runtime.LiveToolRegistry(client=client)
+
+        result = registry.invoke("attach_qrenderdoc", {"window_id": "win-a"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["data"]["window_id"], "win-a")
+        self.assertEqual(client.calls, [("get_capture_status", {}, "win-a")])
+
+    def test_open_capture_routes_window_id_to_live_bridge(self):
+        client = _RecordingClient()
+        registry = runtime.LiveToolRegistry(client=client)
+
+        result = registry.invoke("open_capture", {"path": "D:/caps/a.rdc", "window_id": "win-a"})
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(client.calls, [("open_capture", {"path": "D:/caps/a.rdc"}, "win-a")])
+
+    def test_search_draw_events_by_ue_hint_expands_asset_and_material_terms(self):
+        client = _RecordingClient()
+        registry = runtime.LiveToolRegistry(client=client)
+
+        result = registry.invoke(
+            "search_draw_events_by_ue_hint",
+            {
+                "asset_path": "/Toon/Render/Blueprints/BP_ToonDisplay.BP_ToonDisplay",
+                "material_name": "MI_ToonFace",
+                "window_id": "win-a",
+                "limit": 10,
+            },
+        )
+
+        self.assertTrue(result["ok"])
+        queries = [call[1]["q"] for call in client.calls if call[0] == "find_events"]
+        self.assertIn("MI_ToonFace", queries)
+        self.assertIn("BP_ToonDisplay", queries)

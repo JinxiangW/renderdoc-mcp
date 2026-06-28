@@ -99,6 +99,30 @@ class CaptureStatusService(BridgeService):
 
         return self._error("load_failed", "Capture did not become active: {}".format(path))
 
+    def close_capture(self, params):
+        if not self.ctx.IsCaptureLoaded():
+            return {
+                "ok": True,
+                "mode": "summary",
+                "data": {"closed": False, "loaded": False},
+                "err": None,
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        path = self.ctx.GetCaptureFilename()
+        try:
+            self.ctx.CloseCapture()
+        except Exception as exc:
+            return self._error("close_failed", str(exc))
+
+        return {
+            "ok": True,
+            "mode": "summary",
+            "data": {"closed": True, "path": path, "loaded": bool(self.ctx.IsCaptureLoaded())},
+            "err": None,
+            "meta": {"cap": "active", "truncated": False},
+        }
+
     def find_latest_capture(self, params):
         directory = params.get("directory") or params.get("root")
         if not directory:
