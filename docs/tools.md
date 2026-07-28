@@ -472,7 +472,7 @@ Notes:
 Purpose:
 
 - export HLSL produced by a RenderDoc-registered shader processor for one event/stage
-- use the bundled `ACat DXBC -> HLSL` processor installed in qrenderdoc
+- use the bundled `Ruri DXBC -> HLSL` processor installed in qrenderdoc
 - write the decompiled HLSL to disk instead of returning a large source payload through MCP
 
 Input:
@@ -482,7 +482,7 @@ Input:
   "eid": 4211,
   "stage": "ps",
   "dest": "D:/renderdoc-mcp/.state/action_reverse/eid_4211/eid_4211_ps.hlsl",
-  "processor": "ACat DXBC -> HLSL",
+  "processor": "Ruri DXBC -> HLSL",
   "overwrite": false,
   "timeout": 60.0
 }
@@ -497,7 +497,7 @@ Summary output:
   "shader": {"name": "BasePassPS", "entry": "main"},
   "source_encoding": "DXBC",
   "dest": "D:/renderdoc-mcp/.state/action_reverse/eid_4211/eid_4211_ps.hlsl",
-  "processor": {"name": "ACat DXBC -> HLSL", "input": "DXBC", "output": "HLSL"},
+  "processor": {"name": "Ruri DXBC -> HLSL", "input": "DXBC", "output": "HLSL"},
   "byte_count": 24576,
   "line_count": 640,
   "sha256": "..."
@@ -507,7 +507,7 @@ Summary output:
 Notes:
 
 - `dest` is written on the machine running qrenderdoc
-- when `processor` is omitted, the ACat processor is preferred; otherwise the first registered processor matching the shader encoding to HLSL is used
+- when `processor` is omitted, the Ruri processor is preferred; otherwise the first registered processor matching the shader encoding to HLSL is used
 - existing files are not overwritten unless `overwrite=true`
 
 ## 11. `inspect_mesh`

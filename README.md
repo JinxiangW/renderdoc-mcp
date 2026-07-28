@@ -30,11 +30,11 @@ RenderDoc MCP workspace for a TA-focused, token-efficient analysis server.
 
 ## Local Setup
 
-Install the qrenderdoc bridge extension and bundled ACat DXBC decompiler:
+Install the qrenderdoc bridge extension and bundled Ruri DXBC decompiler:
 
 ```powershell
 py -3 scripts\install_ext.py
 ```
 
-Restart RenderDoc after running the installer. The shader edit/decompile menu will include `ACat DXBC -> HLSL`.
+Restart RenderDoc after running the installer. The shader edit/decompile menu will include only `Ruri DXBC -> HLSL` for DXBC-to-HLSL decompilation.
 The MCP live tool `export_shader_decompiled_hlsl` uses that registered RenderDoc shader processor to write decompiled HLSL files.

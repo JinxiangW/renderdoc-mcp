@@ -8,11 +8,11 @@ import os
 import shutil
 
 EXT_NAME = "renderdoc_mcp_bridge"
-ACAT_PACKAGE = "acat_dxbc_decompiler"
-ACAT_TOOL_ENTRY = {
-    "args": "{input_file} -dxbc {output_file}",
+RURI_PACKAGE = "ruri_shader_decompiler"
+RURI_TOOL_ENTRY = {
+    "args": "{input_file} {output_file} --format dxbc --shader-model 50",
     "input": 1,  # DXBC
-    "name": "ACat DXBC -> HLSL",
+    "name": "Ruri DXBC -> HLSL",
     "output": 5,  # HLSL
     "tool": 0,
 }
@@ -27,22 +27,19 @@ def remove_tree_inside(path: Path, parent: Path) -> None:
 
 
 def install_bundled_decompiler(repo_root: Path, extension_dir: Path) -> Path | None:
-    src = repo_root / "tools" / ACAT_PACKAGE
+    src = repo_root / "tools" / RURI_PACKAGE
     if not src.exists():
         return None
 
-    dst = extension_dir / "tools" / ACAT_PACKAGE
+    dst = extension_dir / "tools" / RURI_PACKAGE
     if dst.exists():
         remove_tree_inside(dst, extension_dir)
     shutil.copytree(src, dst)
-    return dst / "HLSLDecompiler.exe"
+    return dst / "Ruri.ShaderDecompiler.exe"
 
 
 def should_remove_legacy_processor(tool: dict) -> bool:
-    token = "r" + "uri"
-    name = str(tool.get("name", "")).lower()
-    executable = str(tool.get("executable", "")).lower()
-    return token in name or token in executable
+    return int(tool.get("input", -1)) == 1 and int(tool.get("output", -1)) == 5
 
 
 def configure_ui(ui_config: Path, decompiler_exe: Path | None) -> bool:
@@ -66,7 +63,7 @@ def configure_ui(ui_config: Path, decompiler_exe: Path | None) -> bool:
             data["ShaderProcessors"] = processors
             changed = True
 
-        desired = dict(ACAT_TOOL_ENTRY)
+        desired = dict(RURI_TOOL_ENTRY)
         desired["executable"] = str(decompiler_exe)
         existing = next((tool for tool in processors if tool.get("name") == desired["name"]), None)
         if existing is None:
@@ -106,9 +103,9 @@ def main() -> int:
 
     print(f"Installed {EXT_NAME} to {dst}")
     if decompiler_exe is not None:
-        print(f"Installed bundled ACat DXBC decompiler to {decompiler_exe.parent}")
+        print(f"Installed bundled Ruri DXBC decompiler to {decompiler_exe.parent}")
     else:
-        print(f"Bundled ACat DXBC decompiler not found under {repo_root / 'tools' / ACAT_PACKAGE}")
+        print(f"Bundled Ruri DXBC decompiler not found under {repo_root / 'tools' / RURI_PACKAGE}")
     print(f"Updated AlwaysLoad_Extensions in {ui_config}")
     return 0
 

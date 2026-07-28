@@ -248,7 +248,7 @@ class ShaderServiceMixin(ShaderSupportMixin):
         for tool in candidates:
             name = str(tool.get("name", "")).lower()
             executable = str(tool.get("executable", "")).lower()
-            if "acat" in name or "hlsldecompiler" in executable:
+            if "ruri" in name or "ruri.shaderdecompiler" in executable:
                 return tool
 
         return candidates[0]

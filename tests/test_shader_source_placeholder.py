@@ -217,7 +217,7 @@ class ShaderSourcePlaceholderTests(unittest.TestCase):
             self.assertEqual(result["data"]["line_count"], 1)
             self.assertTrue(dest.exists())
 
-    def test_hlsl_decompiler_selection_prefers_acat_by_default(self):
+    def test_hlsl_decompiler_selection_prefers_ruri_by_default(self):
         service = _TestShaderService(_FakeCtx(SimpleNamespace()))
         generic_tool = {
             "name": "Generic DXBC -> HLSL",
@@ -226,15 +226,15 @@ class ShaderSourcePlaceholderTests(unittest.TestCase):
             "input": 1,
             "output": 5,
         }
-        acat_tool = {
-            "name": "ACat DXBC -> HLSL",
-            "executable": "C:/Tools/HLSLDecompiler.exe",
-            "args": "{input_file} -dxbc {output_file}",
+        ruri_tool = {
+            "name": "Ruri DXBC -> HLSL",
+            "executable": "C:/Tools/Ruri.ShaderDecompiler.exe",
+            "args": "{input_file} {output_file} --format dxbc --shader-model 50",
             "input": 1,
             "output": 5,
         }
 
-        with patch.object(service, "_shader_processors", return_value=[generic_tool, acat_tool]):
+        with patch.object(service, "_shader_processors", return_value=[generic_tool, ruri_tool]):
             selected = service._select_hlsl_decompiler(1)
 
-        self.assertEqual(selected, acat_tool)
+        self.assertEqual(selected, ruri_tool)
