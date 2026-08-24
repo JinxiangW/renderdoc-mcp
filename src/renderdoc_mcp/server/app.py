@@ -162,6 +162,11 @@ LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
         "Return a compact mesh summary for one event from the live capture.",
     ),
     ToolSpec(
+        "export_mesh",
+        True,
+        "Export one live draw action's VS-input mesh to an OBJ file.",
+    ),
+    ToolSpec(
         "get_frame_packet",
         True,
         "Return a compact frame-level packet for the live capture.",
