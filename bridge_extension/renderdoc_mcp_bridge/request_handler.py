@@ -39,6 +39,7 @@ class RequestHandler:
             "get_shader_code": observe_service.get_shader_code,
             "inspect_texture_usage": observe_service.inspect_texture_usage,
             "inspect_mesh": observe_service.inspect_mesh,
+            "export_mesh": observe_service.export_mesh,
         }
         self._capture_service = capture_service
 

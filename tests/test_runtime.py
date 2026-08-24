@@ -54,6 +54,33 @@ class RuntimeTests(unittest.TestCase):
         registry = runtime.LiveToolRegistry(client=object())
 
         self.assertIn("save_event_output_texture", registry.handlers)
+        self.assertIn("export_mesh", registry.handlers)
+
+    def test_live_registry_routes_mesh_export_tool(self):
+        client = _RecordingClient()
+        registry = runtime.LiveToolRegistry(client=client)
+
+        result = registry.invoke(
+            "export_mesh",
+            {
+                "eid": 141,
+                "dest": "D:/out/mesh_141.obj",
+                "overwrite": True,
+                "window_id": "win-a",
+            },
+        )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(
+            client.calls,
+            [
+                (
+                    "export_mesh",
+                    {"eid": 141, "dest": "D:/out/mesh_141.obj", "overwrite": True},
+                    "win-a",
+                )
+            ],
+        )
 
     def test_live_registry_exposes_shader_edit_tools(self):
         registry = runtime.LiveToolRegistry(client=object())

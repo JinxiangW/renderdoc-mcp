@@ -173,6 +173,7 @@ class LiveToolRegistry:
             "get_shader_code": self._get_shader_code,
             "inspect_texture_usage": self._inspect_texture_usage,
             "inspect_mesh": self._inspect_mesh,
+            "export_mesh": self._export_mesh,
         }
 
     def invoke(self, method: str, params: dict[str, Any] | None = None) -> Any:
@@ -326,6 +327,10 @@ class LiveToolRegistry:
     def _inspect_mesh(self, params: dict[str, Any]) -> Any:
         clean_params, window_id = self._split_window_params(params)
         return self.client.call("inspect_mesh", clean_params, window_id=window_id)
+
+    def _export_mesh(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("export_mesh", clean_params, window_id=window_id)
 
     def _get_frame_packet(self, params: dict[str, Any]) -> Any:
         include_hints = bool(params.get("include_hints"))
@@ -954,6 +959,23 @@ def maybe_create_fastmcp() -> Any | None:
             "inspect_mesh",
             {
                 "eid": eid,
+                "window_id": window_id,
+            },
+        )
+
+    @app.tool(description=descriptions["export_mesh"])
+    def export_mesh(
+        eid: int,
+        dest: str,
+        overwrite: bool = False,
+        window_id: str | None = None,
+    ) -> Any:
+        return live.require(
+            "export_mesh",
+            {
+                "eid": eid,
+                "dest": dest,
+                "overwrite": overwrite,
                 "window_id": window_id,
             },
         )
