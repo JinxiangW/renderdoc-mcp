@@ -87,7 +87,7 @@ locators (`view`, `projection`, optional `inverse_view`: CB `slot` and byte `off
 its `model_offset` as an independent ownership check; the native implementation retains
 the object transform. Independent projections use `projection_offset` in the same CB.
 Profiles and their different import/restore paths are documented in
-[RenderDuck game profiles](https://github.com/LesFloraison/RenderDuck/tree/freecamera/docs/freecamera-profiles).
+[RenderDuck game profiles](https://github.com/JinxiangW/RenderDuck/tree/freecamera/docs/freecamera-profiles).
 
 The script searches for a unique camera when `reference_event` is omitted. With multiple
 candidates, inspect the reported EIDs and supply one verified main-camera event. That hint
@@ -129,3 +129,15 @@ py -3 scripts\install_ext.py
 ```
 
 Restart RenderDoc after running the installer. The shader edit/decompile menu will include `Ruri DXBC -> HLSL`, `Ruri DXIL -> HLSL`, and `Ruri SPIR-V -> HLSL`.
+
+For additive bridge updates, `py -3 scripts\install_ext.py --incremental` updates files without removing the installed tree. Restart or launch a new qrenderdoc process to load the update; obsolete files are retained by this mode.
+
+`export_buffer` exports an exact buffer range directly to a local binary file and reports its SHA256. It requires `rid` and `dest`; optional `eid`, `offset`, `length` and `window_id` select the capture state and range. Length 0 exports the remainder. Reads are internally chunked, never shortened to the interactive `read_buffer` cap, and incomplete reads do not publish a final file. Existing destinations are preserved unless `overwrite` is explicitly true.
+
+Texture export: `debug_save_texture` accepts optional `type_cast` using RenderDoc component names such as `UNorm`, `Float`, or `Depth`. Use the actual bound view interpretation when exporting typeless resources. The response records the chosen cast; an unknown value fails before file creation. Omitting it preserves legacy Typeless behavior. D16 data viewed as R16_UNorm should be exported explicitly as UNorm to avoid labeling raw UNorm bits as half floats in DDS.
+
+Binary shader edits: `apply_shader_edit` with `source_encoding="dxbc"` reads `source_path` as bytes and sends them unchanged to BuildTargetShader. DXBC text input and invalid container magic are rejected; the graphics driver validates the full container. Existing HLSL text/BOM handling is unchanged. This enables instruction-preserving probes and normal revert behavior.
+
+## Per-instance vertex outputs
+
+The live export_postvs endpoint takes eid, a fresh destination directory, first_instance, instance_count, view and max_bytes. It exports replay-generated VSOut backing buffers once per resource, each instance's MeshFormat offsets/stride, and the original output signature. It preserves raw words; it does not convert to OBJ. The byte budget bounds exported storage; the replay controller reads complete backing buffers. Geometry-stage/task-only MeshFormat fields must not be interpreted as VS output dimensions. Failures retain an explicit incomplete manifest. Existing directories are rejected.

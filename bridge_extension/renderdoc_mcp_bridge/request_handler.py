@@ -12,15 +12,15 @@ class RequestHandler:
         observe_service = ObserveService(ctx)
         camera_service = ReplayCameraService(ctx)
         self._handlers = {
+            "ping": lambda _params: {"status": "ok", "message": "pong"},
+            "get_capture_status": capture_service.run,
             "get_replay_camera_state": camera_service.get_replay_camera_state,
             "configure_replay_camera": camera_service.configure_replay_camera,
             "reset_replay_camera": camera_service.reset_replay_camera,
             "configure_replay_camera_recipe": camera_service.configure_replay_camera_recipe,
             "apply_replay_camera_recipe": camera_service.apply_replay_camera_recipe,
-
-            "ping": lambda _params: {"status": "ok", "message": "pong"},
-            "get_capture_status": capture_service.run,
             "open_capture": capture_service.open_capture,
+            "close_capture": capture_service.close_capture,
             "find_latest_capture": capture_service.find_latest_capture,
             "load_latest_capture": capture_service.load_latest_capture,
             "wait_for_new_capture": capture_service.wait_for_new_capture,
@@ -32,6 +32,8 @@ class RequestHandler:
             "debug_resource_ctx": observe_service.debug_resource_ctx,
             "debug_resource_info": observe_service.debug_resource_info,
             "debug_save_texture": observe_service.debug_save_texture,
+            "export_buffer": observe_service.export_buffer,
+            "export_texture_raw": observe_service.export_texture_raw,
             "save_event_output_texture": observe_service.save_event_output_texture,
             "debug_save_overlay": observe_service.debug_save_overlay,
             "inspect_pipeline_state": observe_service.inspect_pipeline_state,
@@ -48,6 +50,10 @@ class RequestHandler:
             "inspect_texture_usage": observe_service.inspect_texture_usage,
             "inspect_mesh": observe_service.inspect_mesh,
             "export_mesh": observe_service.export_mesh,
+            "export_postvs": observe_service.export_postvs,
+            "export_capture_inventory": observe_service.export_capture_inventory,
+            "export_pixel_history": observe_service.export_pixel_history,
+            "export_shader_debug_trace": observe_service.export_shader_debug_trace,
         }
         self._capture_service = capture_service
 

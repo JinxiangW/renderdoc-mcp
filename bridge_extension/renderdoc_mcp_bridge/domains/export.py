@@ -2,11 +2,124 @@
 
 import os
 import tempfile
+import hashlib
 
 import renderdoc as rd
 
 
 class ExportServiceMixin:
+    def export_texture_raw(self, params):
+        """Export native replay bytes for one explicit subresource; no image remap."""
+        result = {"schema_version": 1, "path": None, "error": None}
+
+        def collect(controller):
+            temporary = None
+            try:
+                if params.get("eid") is None or not params.get("dest"):
+                    raise ValueError("eid and explicit dest are required")
+                eid = int(params["eid"])
+                controller.SetFrameEvent(eid, True)
+                texture = next((t for t in controller.GetTextures() if str(t.resourceId) == str(params.get("rid"))), None)
+                if texture is None:
+                    raise ValueError("Texture not found")
+                mip, layer, sample = (int(params.get(k, 0)) for k in ("mip", "slice", "sample"))
+                if not 0 <= mip < int(texture.mips) or not 0 <= layer < int(texture.arraysize) or not 0 <= sample < max(1, int(texture.msSamp)):
+                    raise ValueError("Subresource outside texture bounds")
+                if int(texture.dimension) == 3 and layer != 0:
+                    raise ValueError("3D exports contain the whole mip volume; slice must be zero")
+                sub = rd.Subresource()
+                sub.mip, sub.slice, sub.sample = mip, layer, sample
+                data = bytes(controller.GetTextureData(texture.resourceId, sub))
+                if not data:
+                    raise ValueError("Replay returned no texture bytes")
+                path = os.path.abspath(str(params["dest"]))
+                if os.path.isdir(path) or (os.path.exists(path) and not params.get("overwrite")):
+                    raise ValueError("Destination exists or is not a file")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                descriptor, temporary = tempfile.mkstemp(prefix=".texture-raw-", dir=os.path.dirname(path))
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(data)
+                os.replace(temporary, path)
+                temporary = None
+                result.update(path=path, eid=eid, rid=str(texture.resourceId), mip=mip, slice=layer, sample=sample,
+                              width=max(1, int(texture.width) >> mip), height=max(1, int(texture.height) >> mip),
+                              depth=max(1, int(texture.depth) >> mip), format=texture.format.Name(),
+                              bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), complete=True)
+            except Exception as exc:
+                result["error"] = str(exc)
+            finally:
+                if temporary is not None and os.path.exists(temporary):
+                    os.unlink(temporary)
+        self.ctx.Replay().BlockInvoke(collect)
+        return {"ok": result["path"] is not None, "mode": "summary", "data": result,
+                "err": None if result["path"] else {"code": "texture_raw_export_failed", "msg": result["error"]},
+                "meta": {"cap": "active", "truncated": False}}
+
+    def export_buffer(self, params):
+        """Write an exact buffer range locally without putting its bytes in RPC JSON."""
+        result = {"path": None, "error": None}
+
+        def collect(controller):
+            temporary = None
+            try:
+                rid = params.get("rid")
+                dest = params.get("dest")
+                if rid is None or not dest:
+                    raise ValueError("rid and dest are required")
+                offset = int(params.get("offset", 0) or 0)
+                length = int(params.get("length", 0) or 0)
+                if offset < 0 or length < 0:
+                    raise ValueError("Buffer range must be nonnegative")
+                eid = params.get("eid")
+                if eid is not None:
+                    controller.SetFrameEvent(int(eid), True)
+                resolved = self._resolve_buffer_rid(controller, rid)
+                if resolved is None:
+                    raise ValueError("Buffer resource not found in current capture")
+                size = int((self._resource_meta(resolved) or {}).get("size", 0) or 0)
+                if length == 0:
+                    length = size - offset
+                if offset > size or length < 0 or offset + length > size:
+                    raise ValueError("Requested buffer range exceeds the resource")
+                overwrite = bool(params.get("overwrite"))
+                path = os.path.abspath(str(dest))
+                if os.path.isdir(path) or str(dest).endswith(("/", "\\")):
+                    raise ValueError("Buffer dest must be an explicit file path")
+                if os.path.exists(path) and not overwrite:
+                    raise ValueError("Export destination already exists")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                descriptor, temporary = tempfile.mkstemp(prefix=".buffer-export-", suffix=".partial", dir=os.path.dirname(path))
+                digest = hashlib.sha256()
+                written = 0
+                with os.fdopen(descriptor, "wb") as stream:
+                    for position in range(0, length, 8 * 1024 * 1024):
+                        requested = min(8 * 1024 * 1024, length - position)
+                        data = self._byte_list(controller.GetBufferData(resolved, offset + position, requested))
+                        if len(data) != requested:
+                            raise ValueError("Replay returned an incomplete buffer range")
+                        stream.write(data)
+                        digest.update(data)
+                        written += len(data)
+                if written != length:
+                    raise ValueError("Buffer export extent mismatch")
+                if not overwrite and os.path.exists(path):
+                    raise ValueError("Export destination already exists")
+                os.replace(temporary, path)
+                temporary = None
+                result.update({"path": path, "rid": str(resolved), "eid": eid,
+                               "offset": offset, "bytes": written, "resource_bytes": size,
+                               "sha256": digest.hexdigest(), "complete": True})
+            except Exception as exc:
+                result["error"] = str(exc)
+            finally:
+                if temporary is not None and os.path.exists(temporary):
+                    os.unlink(temporary)
+
+        self.ctx.Replay().BlockInvoke(collect)
+        return {"ok": result["path"] is not None, "mode": "summary", "data": result,
+                "err": None if result["path"] else {"code": "buffer_export_failed", "msg": result["error"]},
+                "meta": {"cap": "active", "truncated": False}}
+
     @staticmethod
     def _overlay_enum(name):
         overlay_map = {
@@ -125,6 +238,7 @@ class ExportServiceMixin:
                 eid,
                 bool(params.get("overwrite")),
                 prefix="texture",
+                type_cast=params.get("type_cast"),
             )
             result.update(saved)
 
@@ -391,6 +505,8 @@ class ExportServiceMixin:
         return bool(rid_str) and "Null" not in rid_str and rid_str != "ResourceId::0"
 
     def _resolve_event_output_rid(self, controller, eid, output_index, include_depth):
+        # Action metadata identifies the resource, but its contents still require replay.
+        controller.SetFrameEvent(int(eid), True)
         action = self.ctx.GetAction(int(eid))
         if action is not None:
             if include_depth:
@@ -407,7 +523,6 @@ class ExportServiceMixin:
                     if self._valid_resource_id(rid):
                         return rid
 
-        controller.SetFrameEvent(int(eid), True)
         pipe = controller.GetPipelineState()
 
         if include_depth:
@@ -431,9 +546,17 @@ class ExportServiceMixin:
                 return rid
         return None
 
-    def _save_texture_resource(self, controller, rid, dest, dest_path, eid, overwrite, prefix):
-        result = {"path": None, "error": None}
+    def _save_texture_resource(self, controller, rid, dest, dest_path, eid, overwrite, prefix, type_cast=None):
+        result = {"schema_version": 2, "path": None, "error": None}
+        casts = {name.lower(): name for name in ("Typeless", "Float", "UNorm", "SNorm", "UInt", "SInt", "Depth", "Double", "UScaled", "SScaled")}
+        requested_cast = "typeless" if type_cast is None else str(type_cast).strip().lower()
+        if requested_cast not in casts:
+            result["error"] = "Unsupported texture type_cast: " + str(type_cast)
+            return result
+        cast_name = casts[requested_cast]
+        result["type_cast"] = cast_name
         save = rd.TextureSave()
+        save.typeCast = getattr(rd.CompType, cast_name)
         resolved = None
         for tex in controller.GetTextures():
             if str(tex.resourceId) == str(rid):

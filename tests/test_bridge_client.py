@@ -30,6 +30,63 @@ def make_instance(ipc_dir: Path, window_id: str) -> Path:
 
 
 class BridgeClientTests(unittest.TestCase):
+    def test_json_reader_retries_transient_permission_error(self):
+        from unittest.mock import patch
+        with patch.object(Path, "read_text", side_effect=[PermissionError("sharing violation"), '{"ok": true}']) as read:
+            with patch("renderdoc_mcp.integration.bridge_client.time.sleep"):
+                self.assertEqual(LiveBridgeClient._read_json_retry(Path("response.json")), {"ok": True})
+        self.assertEqual(read.call_count, 2)
+
+    def test_json_reader_preserves_persistent_permission_failure(self):
+        from unittest.mock import patch
+        error = PermissionError("access remains denied")
+        with patch.object(Path, "read_text", side_effect=error) as read:
+            with patch("renderdoc_mcp.integration.bridge_client.time.sleep"):
+                with self.assertRaises(PermissionError) as caught:
+                    LiveBridgeClient._read_json_retry(Path("response.json"))
+        self.assertIs(caught.exception, error)
+        self.assertEqual(read.call_count, 5)
+
+    @unittest.skipUnless(__import__("os").name == "nt", "Windows sharing semantics")
+    def test_json_reader_with_real_windows_exclusive_handle(self):
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+        kernel.CreateFileW.restype = ctypes.c_void_p
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "response.json"
+            path.write_text('{"ok": true}', encoding="utf-8")
+            handle = kernel.CreateFileW(str(path), 0x80000000, 0, None, 3, 0x80, None)
+            self.assertNotEqual(handle, ctypes.c_void_p(-1).value)
+            timer = threading.Timer(0.12, lambda: kernel.CloseHandle(handle))
+            timer.start()
+            try:
+                self.assertEqual(LiveBridgeClient._read_json_retry(path), {"ok": True})
+            finally:
+                timer.join()
+
+    def test_transient_empty_heartbeat_does_not_hide_selected_window(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            instance = make_instance(root, "alpha")
+            heartbeat = instance / "heartbeat"
+            original = Path.read_text
+            attempts = 0
+            def read(path, *args, **kwargs):
+                nonlocal attempts
+                if path == heartbeat:
+                    attempts += 1
+                    if attempts == 1:
+                        return ""
+                return original(path, *args, **kwargs)
+            client = LiveBridgeClient(timeout=1)
+            client.ipc_dir = root
+            with patch.object(Path, "read_text", read):
+                self.assertTrue(client.available("alpha"))
+            self.assertGreaterEqual(attempts, 2)
+
     def test_call_ignores_unrelated_response_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             ipc_dir = Path(temp_dir)

@@ -1,5 +1,7 @@
 """Shared resource and hierarchy helpers for live bridge services."""
 
+from .inventory import binding_location
+
 
 class ResourceSupportMixin:
     def _resource_meta(self, rid):
@@ -229,15 +231,19 @@ class ResourceSupportMixin:
                 try:
                     for srv in pipe.GetReadOnlyResources(stage_enum, False):
                         if str(srv.descriptor.resource) == rid_str:
-                            add_ctx("SRV", stage_name, int(srv.access.index))
-                            contexts[-1]["name"] = bind_name("SRV", int(srv.access.index))
+                            location = binding_location(srv, getattr(refl, "readOnlyResources", []))
+                            add_ctx("SRV", stage_name, location["slot"] if location["slot"] is not None else -1)
+                            contexts[-1]["name"] = location["name"]
+                            contexts[-1]["location"] = location
                 except Exception as exc:
                     self._warn_swallow("resource_support.binding_ctx.read_only_resources", exc)
                 try:
                     for uav in pipe.GetReadWriteResources(stage_enum, False):
                         if str(uav.descriptor.resource) == rid_str:
-                            add_ctx("UAV", stage_name, int(uav.access.index))
-                            contexts[-1]["name"] = bind_name("UAV", int(uav.access.index))
+                            location = binding_location(uav, getattr(refl, "readWriteResources", []))
+                            add_ctx("UAV", stage_name, location["slot"] if location["slot"] is not None else -1)
+                            contexts[-1]["name"] = location["name"]
+                            contexts[-1]["location"] = location
                 except Exception as exc:
                     self._warn_swallow("resource_support.binding_ctx.read_write_resources", exc)
 

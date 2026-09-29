@@ -163,8 +163,10 @@ class BridgeServer(QObject):
 
     def _write_liveness(self):
         try:
-            with open(self.heartbeat_file, "w", encoding="utf-8") as handle:
+            temporary = self.heartbeat_file + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as handle:
                 handle.write(str(time.time()))
+            os.replace(temporary, self.heartbeat_file)
         except OSError:
             pass
         try:
@@ -203,6 +205,10 @@ class BridgeServer(QObject):
             else:
                 response_file = os.path.join(self.responses_dir, "unknown.json")
 
+            # Replay/export can outlive the client's heartbeat freshness window.
+            # Publish fresh liveness before making the response observable, so a
+            # following request does not mistake this working instance for dead.
+            self._write_liveness()
             self._write_json_atomic(response_file, response)
         except Exception:  # pragma: no cover - runtime safety
             traceback.print_exc()

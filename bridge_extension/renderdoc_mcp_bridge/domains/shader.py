@@ -6,6 +6,7 @@ import os
 import renderdoc as rd
 
 from .pipeline import ShaderSupportMixin
+from .inventory import binding_location
 
 
 class ShaderServiceMixin(ShaderSupportMixin):
@@ -211,7 +212,10 @@ class ShaderServiceMixin(ShaderSupportMixin):
 
     @staticmethod
     def _read_shader_source_from_params(params):
+        binary_dxbc = str(params.get("source_encoding") or "hlsl").lower() == "dxbc"
         if params.get("source") is not None:
+            if binary_dxbc:
+                return None, "DXBC edits require source_path; binary data must not be passed as text"
             return str(params.get("source")), None
 
         source_path = params.get("source_path") or params.get("path")
@@ -220,6 +224,12 @@ class ShaderServiceMixin(ShaderSupportMixin):
 
         source_path = os.path.abspath(str(source_path))
         try:
+            if binary_dxbc:
+                with open(source_path, "rb") as handle:
+                    data = handle.read()
+                if len(data) < 32 or data[:4] != b"DXBC":
+                    return None, "Invalid DXBC container header"
+                return data, None
             with open(source_path, "r", encoding="utf-8-sig") as handle:
                 return handle.read(), None
         except Exception as exc:
@@ -645,11 +655,13 @@ class ShaderServiceMixin(ShaderSupportMixin):
 
         try:
             for srv in pipe.GetReadOnlyResources(stage_enum, False):
-                slot = self._binding_slot(srv)
+                location = binding_location(srv, getattr(refl, "readOnlyResources", []))
+                slot = location["slot"] if location["slot"] is not None else -1
                 rid = self._binding_resource_id(srv)
                 info = {
                     "slot": slot,
                     "name": srv_names.get(slot, ""),
+                    "location": location,
                 }
                 resource_info = self._binding_resource_info(rid)
                 if resource_info is not None:
@@ -661,11 +673,13 @@ class ShaderServiceMixin(ShaderSupportMixin):
 
         try:
             for uav in pipe.GetReadWriteResources(stage_enum, False):
-                slot = self._binding_slot(uav)
+                location = binding_location(uav, getattr(refl, "readWriteResources", []))
+                slot = location["slot"] if location["slot"] is not None else -1
                 rid = self._binding_resource_id(uav)
                 info = {
                     "slot": slot,
                     "name": uav_names.get(slot, ""),
+                    "location": location,
                 }
                 resource_info = self._binding_resource_info(rid)
                 if resource_info is not None:
@@ -698,11 +712,13 @@ class ShaderServiceMixin(ShaderSupportMixin):
 
         try:
             for smp in pipe.GetSamplers(stage_enum, False):
-                slot = self._binding_slot(smp)
+                location = binding_location(smp, getattr(refl, "samplers", []))
+                slot = location["slot"] if location["slot"] is not None else -1
                 bindings["smp"].append(
                     {
                         "slot": slot,
                         "name": smp_names.get(slot, ""),
+                        "location": location,
                     }
                 )
         except Exception as exc:
@@ -932,7 +948,7 @@ class ShaderServiceMixin(ShaderSupportMixin):
 
             refl = pipe.GetShaderReflection(stage_enum)
             flags = self._compile_flags_for_edit(params, refl)
-            shader_bytes = source_text.encode("utf-8")
+            shader_bytes = source_text if isinstance(source_text, bytes) else source_text.encode("utf-8")
 
             try:
                 new_shader, errors = controller.BuildTargetShader(

@@ -92,13 +92,17 @@ class CaptureStatusService(BridgeService):
         if os.path.splitext(path)[1].lower() != ".rdc":
             return self._error("invalid_capture_type", "Expected .rdc file: {}".format(path))
 
-        try:
-            loaded = self.ctx.LoadCapture(path, rd.ReplayOptions(), path, False, True)
-        except TypeError:
+        def load():
             try:
-                loaded = self.ctx.LoadCapture(path, rd.ReplayOptions(), path, False)
+                return self.ctx.LoadCapture(path, rd.ReplayOptions(), path, False, True)
             except TypeError:
-                loaded = self.ctx.LoadCapture(path)
+                try:
+                    return self.ctx.LoadCapture(path, rd.ReplayOptions(), path, False)
+                except TypeError:
+                    return self.ctx.LoadCapture(path)
+
+        try:
+            loaded = self._invoke_on_ui_thread(load, float(params.get("wait", 180.0) or 180.0))
         except Exception as exc:
             return self._error("load_failed", str(exc))
 
@@ -120,6 +124,30 @@ class CaptureStatusService(BridgeService):
             return result
 
         return self._error("load_failed", "Capture did not become active: {}".format(path))
+
+    def close_capture(self, params):
+        if not self.ctx.IsCaptureLoaded():
+            return {
+                "ok": True,
+                "mode": "summary",
+                "data": {"closed": False, "loaded": False},
+                "err": None,
+                "meta": {"cap": "active", "truncated": False},
+            }
+
+        path = self.ctx.GetCaptureFilename()
+        try:
+            self._invoke_on_ui_thread(self.ctx.CloseCapture, float(params.get("wait", 60.0) or 60.0))
+        except Exception as exc:
+            return self._error("close_failed", str(exc))
+
+        return {
+            "ok": True,
+            "mode": "summary",
+            "data": {"closed": True, "path": path, "loaded": bool(self.ctx.IsCaptureLoaded())},
+            "err": None,
+            "meta": {"cap": "active", "truncated": False},
+        }
 
     def find_latest_capture(self, params):
         directory = params.get("directory") or params.get("root")

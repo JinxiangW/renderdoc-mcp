@@ -68,9 +68,15 @@ LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("reset_replay_camera", True, "Disable the free camera and restore original replay while retaining visible field configuration. Poll state for completion."),
     ToolSpec("configure_replay_camera_recipe", True, "Set a data-only JSON replay recipe and optionally run it. Version 2 declares camera matrix locators and explicit pass skip/colour_bypass rules with reasons and capture SHA256/size; the bundled frontend script expands actual shader/event bindings. Poll get_replay_camera_state while scanning/busy/pending_update. Inspect scan_report, scan_partial and scan_field_count; partial results require apply_replay_camera_recipe. No arbitrary Python execution."),
     ToolSpec("apply_replay_camera_recipe", True, "Explicitly accept and apply the last completed camera recipe result, including a confirmed partial result. Inspect scan_report first. Poll get_replay_camera_state for replay completion."),
+    ToolSpec("export_shader_debug_trace", True, "Export complete pixel shader debugger states with exact value bits and disassembly."),
+    ToolSpec("export_capture_inventory", True, "Export all capture actions/resources or a bounded page of full pipeline bindings to JSON."),
+    ToolSpec("export_pixel_history", True, "Export original per-fragment pixel history and rejection reasons at a mip0 pixel."),
     ToolSpec("list_live_windows", True, "List active qrenderdoc bridge windows and their window_id values."),
+    ToolSpec("attach_qrenderdoc", True, "Diagnose and attach to an active qrenderdoc bridge window."),
+    ToolSpec("connect_live_bridge", True, "Alias for attach_qrenderdoc with explicit bridge diagnostics."),
     ToolSpec("get_capture_status", True, "Return current capture status from the live bridge."),
     ToolSpec("open_capture", True, "Load a capture by path into the live qrenderdoc session."),
+    ToolSpec("close_capture", True, "Close the active capture in one qrenderdoc bridge window."),
     ToolSpec("find_latest_capture", True, "Find the newest .rdc capture under a directory."),
     ToolSpec("load_latest_capture", True, "Load the newest .rdc capture into the live qrenderdoc session."),
     ToolSpec("wait_for_new_capture", True, "Wait for a newer .rdc capture and load it into qrenderdoc."),
@@ -90,6 +96,7 @@ LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
         "Compare UE-side context metadata between two captures.",
     ),
     ToolSpec("find_events", True, "Find compact event matches in the live capture."),
+    ToolSpec("search_draw_events_by_ue_hint", True, "Search live draw events using UE actor, asset, material, or component hints."),
     ToolSpec("list_passes", True, "List pass markers in the live capture."),
     ToolSpec(
         "inspect_pipeline_state",
@@ -166,6 +173,7 @@ LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
         True,
         "Export one live draw action's VS-input mesh to an OBJ file.",
     ),
+    ToolSpec("export_postvs", True, "Export raw per-instance VS output buffers and exact mesh layouts into a fresh directory."),
     ToolSpec(
         "get_frame_packet",
         True,
@@ -189,6 +197,11 @@ LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "debug_save_texture",
         True,
-        "Save one live texture resource to an export file for before/after validation.",
+        "Save one live texture resource to an export file. Use type_cast (e.g. UNorm, Float, Depth) to preserve the observed view interpretation of typeless textures; omitted keeps the legacy Typeless behavior.",
+    ),
+    ToolSpec(
+        "export_buffer",
+        True,
+        "Export an exact live buffer range to a local binary file with SHA256. Length0 means the remaining resource; no bytes are truncated or embedded in the response.",
     ),
 )

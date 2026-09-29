@@ -176,9 +176,17 @@ class LiveBridgeClient:
         heartbeat_file: Path,
         info_file: Path,
     ) -> LiveBridgeInstance | None:
-        try:
-            ts = float(heartbeat_file.read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
+        # Older installed bridges updated heartbeat by truncating it first.
+        # A simultaneous read must not report a working window as missing.
+        ts = None
+        for attempt in range(3):
+            try:
+                ts = float(heartbeat_file.read_text(encoding="utf-8").strip())
+                break
+            except (OSError, ValueError):
+                if attempt < 2:
+                    time.sleep(0.01)
+        if ts is None:
             return None
 
         heartbeat_age = time.time() - ts
@@ -248,11 +256,14 @@ class LiveBridgeClient:
 
     @staticmethod
     def _read_json_retry(path: Path) -> Any:
-        last_error: json.JSONDecodeError | None = None
+        last_error: json.JSONDecodeError | PermissionError | None = None
         for _ in range(5):
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as exc:
+            except (json.JSONDecodeError, PermissionError) as exc:
+                # Windows can briefly deny sharing while a response is being
+                # published or inspected. Keep the existing bounded retry;
+                # persistent permission errors must still reach the caller.
                 last_error = exc
                 time.sleep(0.05)
         if last_error is not None:

@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from renderdoc_mcp.capture_hints import attach_capture_hints, load_capture_hints
 from renderdoc_mcp.context_metadata import compare_capture_contexts, load_capture_context
-from renderdoc_mcp.integration import LiveBridgeClient
+from renderdoc_mcp.integration import LiveBridgeClient, LiveBridgeError
 
 from .app import LIVE_BRIDGE_TOOLS, OFFLINE_BOOTSTRAP_TOOLS
 from .offline_bootstrap import OfflineBootstrapTools
@@ -149,8 +149,11 @@ class LiveToolRegistry:
             "reset_replay_camera": self._reset_replay_camera,
             "configure_replay_camera_recipe": self._configure_replay_camera_recipe,
             "apply_replay_camera_recipe": self._apply_replay_camera_recipe,
+            "attach_qrenderdoc": self._attach_qrenderdoc,
+            "connect_live_bridge": self._attach_qrenderdoc,
             "get_capture_status": self._get_capture_status,
             "open_capture": self._open_capture,
+            "close_capture": self._close_capture,
             "find_latest_capture": self._find_latest_capture,
             "load_latest_capture": self._load_latest_capture,
             "wait_for_new_capture": self._wait_for_new_capture,
@@ -158,12 +161,14 @@ class LiveToolRegistry:
             "get_capture_hints": self._get_capture_hints,
             "compare_capture_contexts": self._compare_capture_contexts,
             "find_events": self._find_events,
+            "search_draw_events_by_ue_hint": self._search_draw_events_by_ue_hint,
             "list_passes": self._list_passes,
             "get_frame_packet": self._get_frame_packet,
             "get_pass_packet": self._get_pass_packet,
             "get_draw_packet": self._get_draw_packet,
             "debug_save_overlay": self._debug_save_overlay,
             "debug_save_texture": self._debug_save_texture,
+            "export_buffer": self._export_buffer,
             "save_event_output_texture": self._save_event_output_texture,
             "inspect_pipeline_state": self._inspect_pipeline_state,
             "inspect_shader": self._inspect_shader,
@@ -179,6 +184,10 @@ class LiveToolRegistry:
             "inspect_texture_usage": self._inspect_texture_usage,
             "inspect_mesh": self._inspect_mesh,
             "export_mesh": self._export_mesh,
+            "export_postvs": self._export_postvs,
+            "export_capture_inventory": self._export_capture_inventory,
+            "export_pixel_history": self._export_pixel_history,
+            "export_shader_debug_trace": self._export_shader_debug_trace,
         }
 
     def invoke(self, method: str, params: dict[str, Any] | None = None) -> Any:
@@ -192,14 +201,29 @@ class LiveToolRegistry:
     def require(self, method: str, params: dict[str, Any] | None = None) -> Any:
         clean_params, window_id = self._split_window_params(params or {})
         if not self.available(window_id):
-            raise RuntimeError("Live qrenderdoc bridge is not available")
-        return self.invoke(method, {**clean_params, "window_id": window_id})
+            return _live_bridge_unavailable(self.client, window_id=window_id)
+        try:
+            return self.invoke(method, {**clean_params, "window_id": window_id})
+        except LiveBridgeError as exc:
+            return _live_bridge_unavailable(self.client, window_id=window_id, msg=str(exc))
 
     @staticmethod
     def _split_window_params(params: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         clean_params = dict(params)
         window_id = clean_params.pop("window_id", None) or clean_params.pop("bridge_id", None)
         return clean_params, window_id
+
+    def _get_capture_status(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("get_capture_status", clean_params, window_id=window_id)
+
+    def _open_capture(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("open_capture", clean_params, window_id=window_id)
+
+    def _close_capture(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("close_capture", clean_params, window_id=window_id)
 
     def _get_replay_camera_state(self, params: dict[str, Any]) -> Any:
         clean_params, window_id = self._split_window_params(params)
@@ -221,13 +245,63 @@ class LiveToolRegistry:
         clean_params, window_id = self._split_window_params(params)
         return self.client.call("apply_replay_camera_recipe", clean_params, window_id=window_id)
 
-    def _get_capture_status(self, params: dict[str, Any]) -> Any:
+    def _attach_qrenderdoc(self, params: dict[str, Any]) -> Any:
         clean_params, window_id = self._split_window_params(params)
-        return self.client.call("get_capture_status", clean_params, window_id=window_id)
+        capture_path = clean_params.get("path") or clean_params.get("capture_path")
+        windows_result = self.client.list_windows()
+        windows = (windows_result.get("data") or {}).get("windows") or []
 
-    def _open_capture(self, params: dict[str, Any]) -> Any:
-        clean_params, window_id = self._split_window_params(params)
-        return self.client.call("open_capture", clean_params, window_id=window_id)
+        if not windows:
+            return _live_bridge_unavailable(self.client, window_id=window_id)
+
+        selected_window_id = window_id
+        if selected_window_id is None:
+            if len(windows) > 1:
+                result = _error_envelope(
+                    "window_id_required",
+                    "Multiple live qrenderdoc bridges are available; pass window_id.",
+                    cap="active",
+                )
+                result["data"] = {
+                    "requested_window_id": None,
+                    "window_count": len(windows),
+                    "windows": windows,
+                    "next_actions": [
+                        "Call list_live_windows.",
+                        "Pass one returned window_id to attach_qrenderdoc and later live tools.",
+                    ],
+                }
+                return result
+            selected_window_id = windows[0].get("window_id")
+
+        if not self.available(selected_window_id):
+            return _live_bridge_unavailable(self.client, window_id=selected_window_id)
+
+        try:
+            if capture_path:
+                status = self.client.call(
+                    "open_capture",
+                    {"path": str(capture_path), "wait": clean_params.get("wait", 10.0)},
+                    window_id=selected_window_id,
+                )
+            else:
+                status = self.client.call("get_capture_status", {}, window_id=selected_window_id)
+        except LiveBridgeError as exc:
+            return _live_bridge_unavailable(self.client, window_id=selected_window_id, msg=str(exc))
+
+        return {
+            "ok": bool(status.get("ok", True)),
+            "mode": "summary",
+            "data": {
+                "attached": bool(status.get("ok", True)),
+                "window_id": selected_window_id,
+                "window_count": len(windows),
+                "windows": windows,
+                "status": status.get("data") if isinstance(status, dict) else status,
+            },
+            "err": status.get("err") if isinstance(status, dict) else None,
+            "meta": {"cap": "active", "truncated": False},
+        }
 
     def _find_latest_capture(self, params: dict[str, Any]) -> Any:
         clean_params, window_id = self._split_window_params(params)
@@ -297,6 +371,75 @@ class LiveToolRegistry:
         clean_params, window_id = self._split_window_params(params)
         return self.client.call("find_events", clean_params, window_id=window_id)
 
+    def _search_draw_events_by_ue_hint(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        if not self.available(window_id):
+            return _live_bridge_unavailable(self.client, window_id=window_id)
+
+        terms = _ue_hint_terms(
+            actor_label=clean_params.get("actor_label"),
+            material_name=clean_params.get("material_name"),
+            asset_path=clean_params.get("asset_path") or clean_params.get("ue_asset_path"),
+            component_name=clean_params.get("component_name"),
+        )
+        if not terms:
+            return _error_envelope(
+                "missing_args",
+                "Provide at least one of actor_label, material_name, asset_path, or component_name.",
+                cap="active",
+            )
+
+        per_term_limit = max(1, int(clean_params.get("per_term_limit", 25) or 25))
+        final_limit = max(1, int(clean_params.get("limit", 50) or 50))
+        exclude_markers = clean_params.get("exclude_markers") or []
+        seen: set[int] = set()
+        items: list[dict[str, Any]] = []
+        term_results: list[dict[str, Any]] = []
+        try:
+            for term in terms:
+                result = self.client.call(
+                    "find_events",
+                    {
+                        "q": term,
+                        "exclude_markers": exclude_markers,
+                        "limit": per_term_limit,
+                    },
+                    window_id=window_id,
+                )
+                data = result.get("data") or {}
+                matched_items = data.get("items") or []
+                term_results.append({"term": term, "count": len(matched_items)})
+                for item in matched_items:
+                    eid = int(item.get("eid") or 0)
+                    if eid in seen:
+                        continue
+                    kind = str(item.get("type") or "")
+                    if kind and kind not in {"Draw", "Dispatch", "Action"}:
+                        continue
+                    seen.add(eid)
+                    enriched = dict(item)
+                    enriched["matched_term"] = term
+                    items.append(enriched)
+                    if len(items) >= final_limit:
+                        break
+                if len(items) >= final_limit:
+                    break
+        except LiveBridgeError as exc:
+            return _live_bridge_unavailable(self.client, window_id=window_id, msg=str(exc))
+
+        return {
+            "ok": True,
+            "mode": "summary",
+            "data": {
+                "count": len(items),
+                "items": items,
+                "terms": terms,
+                "term_results": term_results,
+            },
+            "err": None,
+            "meta": {"cap": "active", "truncated": len(items) >= final_limit},
+        }
+
     def _list_passes(self, params: dict[str, Any]) -> Any:
         clean_params, window_id = self._split_window_params(params)
         return self.client.call("list_passes", clean_params, window_id=window_id)
@@ -356,6 +499,22 @@ class LiveToolRegistry:
     def _export_mesh(self, params: dict[str, Any]) -> Any:
         clean_params, window_id = self._split_window_params(params)
         return self.client.call("export_mesh", clean_params, window_id=window_id)
+
+    def _export_postvs(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("export_postvs", clean_params, window_id=window_id)
+
+    def _export_capture_inventory(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("export_capture_inventory", clean_params, window_id=window_id)
+
+    def _export_pixel_history(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("export_pixel_history", clean_params, window_id=window_id)
+
+    def _export_shader_debug_trace(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("export_shader_debug_trace", clean_params, window_id=window_id)
 
     def _get_frame_packet(self, params: dict[str, Any]) -> Any:
         include_hints = bool(params.get("include_hints"))
@@ -434,6 +593,10 @@ class LiveToolRegistry:
         clean_params, window_id = self._split_window_params(params)
         return self.client.call("debug_save_texture", clean_params, window_id=window_id)
 
+    def _export_buffer(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("export_buffer", clean_params, window_id=window_id)
+
     def _save_event_output_texture(self, params: dict[str, Any]) -> Any:
         clean_params, window_id = self._split_window_params(params)
         return self.client.call("save_event_output_texture", clean_params, window_id=window_id)
@@ -471,6 +634,70 @@ def _error_envelope(code: str, msg: str, cap: str | None = None) -> dict[str, An
             "truncated": False,
         },
     }
+
+
+def _live_bridge_unavailable(
+    client: LiveBridgeClient,
+    *,
+    window_id: str | None = None,
+    msg: str = "Live qrenderdoc bridge is not available",
+) -> dict[str, Any]:
+    result = _error_envelope("live_bridge_unavailable", msg, cap="active")
+    try:
+        windows_result = client.list_windows()
+        windows = (windows_result.get("data") or {}).get("windows") or []
+    except Exception as exc:
+        windows = []
+        windows_error = str(exc)
+    else:
+        windows_error = None
+    result["data"] = {
+        "requested_window_id": window_id,
+        "window_count": len(windows),
+        "windows": windows,
+        "windows_error": windows_error,
+        "next_actions": [
+            "Install or update the qrenderdoc bridge extension.",
+            "Restart qrenderdoc after installing or updating the extension.",
+            "Open a capture in qrenderdoc, then call list_live_windows.",
+            "Pass window_id to live tools when more than one bridge window is active.",
+        ],
+    }
+    return result
+
+
+def _ue_hint_terms(
+    *,
+    actor_label: Any = None,
+    material_name: Any = None,
+    asset_path: Any = None,
+    component_name: Any = None,
+) -> list[str]:
+    raw_terms = [
+        str(item).strip()
+        for item in (actor_label, material_name, component_name)
+        if item is not None and str(item).strip()
+    ]
+    if asset_path is not None and str(asset_path).strip():
+        text = str(asset_path).strip()
+        raw_terms.append(text)
+        leaf = text.rsplit("/", 1)[-1]
+        raw_terms.append(leaf)
+        raw_terms.append(leaf.split(".")[-1])
+        raw_terms.append(leaf.split(".")[0])
+
+    seen: set[str] = set()
+    terms: list[str] = []
+    for term in raw_terms:
+        cleaned = term.strip()
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(cleaned)
+    return terms
 
 
 def maybe_create_fastmcp() -> Any | None:
@@ -524,14 +751,6 @@ def maybe_create_fastmcp() -> Any | None:
             "window_id": window_id,
         })
 
-    @app.tool(description=descriptions["reset_replay_camera"])
-    def reset_replay_camera(
-        expected_capture: str | None = None, window_id: str | None = None,
-    ) -> Any:
-        return live.require("reset_replay_camera", {
-            "expected_capture": expected_capture, "window_id": window_id,
-        })
-
     @app.tool(description=descriptions["configure_replay_camera_recipe"])
     def configure_replay_camera_recipe(
         recipe: dict[str, Any], run: bool = True, show: bool = True,
@@ -550,9 +769,39 @@ def maybe_create_fastmcp() -> Any | None:
             "expected_capture": expected_capture, "window_id": window_id,
         })
 
+    @app.tool(description=descriptions["reset_replay_camera"])
+    def reset_replay_camera(
+        expected_capture: str | None = None, window_id: str | None = None,
+    ) -> Any:
+        return live.require("reset_replay_camera", {
+            "expected_capture": expected_capture, "window_id": window_id,
+        })
+
     @app.tool(description=descriptions["list_live_windows"])
     def list_live_windows() -> Any:
         return live.invoke("list_live_windows")
+
+    @app.tool(description=descriptions["attach_qrenderdoc"])
+    def attach_qrenderdoc(
+        window_id: str | None = None,
+        path: str | None = None,
+        wait: float = 10.0,
+    ) -> Any:
+        return live.invoke(
+            "attach_qrenderdoc",
+            {"window_id": window_id, "path": path, "wait": wait},
+        )
+
+    @app.tool(description=descriptions["connect_live_bridge"])
+    def connect_live_bridge(
+        window_id: str | None = None,
+        path: str | None = None,
+        wait: float = 10.0,
+    ) -> Any:
+        return live.invoke(
+            "connect_live_bridge",
+            {"window_id": window_id, "path": path, "wait": wait},
+        )
 
     @app.tool(description=descriptions["get_capture_status"])
     def get_capture_status(directory: str | None = None, window_id: str | None = None) -> Any:
@@ -664,10 +913,16 @@ def maybe_create_fastmcp() -> Any | None:
         return offline.invoke("list_captures", {"root": root, "limit": limit})
 
     @app.tool(description=descriptions["open_capture"])
-    def open_capture(path: str) -> Any:
-        if live.available():
-            return live.invoke("open_capture", {"path": path})
+    def open_capture(path: str, window_id: str | None = None) -> Any:
+        if live.available(window_id):
+            return live.invoke("open_capture", {"path": path, "window_id": window_id})
+        if window_id is not None:
+            return _live_bridge_unavailable(live.client, window_id=window_id)
         return offline.invoke("open_capture", {"path": path})
+
+    @app.tool(description=descriptions["close_capture"])
+    def close_capture(window_id: str | None = None) -> Any:
+        return live.require("close_capture", {"window_id": window_id})
 
     @app.tool(description=descriptions["find_latest_capture"])
     def find_latest_capture(directory: str, recursive: bool = True) -> Any:
@@ -725,6 +980,31 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
+    @app.tool(description=descriptions["search_draw_events_by_ue_hint"])
+    def search_draw_events_by_ue_hint(
+        actor_label: str | None = None,
+        material_name: str | None = None,
+        asset_path: str | None = None,
+        component_name: str | None = None,
+        limit: int = 50,
+        per_term_limit: int = 25,
+        exclude_markers: list[str] | None = None,
+        window_id: str | None = None,
+    ) -> Any:
+        return live.require(
+            "search_draw_events_by_ue_hint",
+            {
+                "actor_label": actor_label,
+                "material_name": material_name,
+                "asset_path": asset_path,
+                "component_name": component_name,
+                "limit": limit,
+                "per_term_limit": per_term_limit,
+                "exclude_markers": exclude_markers or [],
+                "window_id": window_id,
+            },
+        )
+
     @app.tool(description=descriptions["list_passes"])
     def list_passes(
         marker: str | None = None,
@@ -772,6 +1052,20 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
+    @app.tool(description=descriptions["export_buffer"])
+    def export_buffer(
+        rid: str,
+        dest: str,
+        eid: int | None = None,
+        offset: int = 0,
+        length: int = 0,
+        overwrite: bool = False,
+        window_id: str | None = None,
+    ) -> Any:
+        return live.require("export_buffer", {"rid": rid, "dest": dest, "eid": eid,
+                            "offset": offset, "length": length, "overwrite": overwrite,
+                            "window_id": window_id})
+
     @app.tool(description=descriptions["debug_save_texture"])
     def debug_save_texture(
         rid: str,
@@ -779,6 +1073,7 @@ def maybe_create_fastmcp() -> Any | None:
         dest: str = "PNG",
         format: str | None = None,
         overwrite: bool = False,
+        type_cast: str | None = None,
         window_id: str | None = None,
     ) -> Any:
         return live.require(
@@ -789,6 +1084,7 @@ def maybe_create_fastmcp() -> Any | None:
                 "dest": dest,
                 "format": format,
                 "overwrite": overwrite,
+                "type_cast": type_cast,
                 "window_id": window_id,
             },
         )
@@ -1065,6 +1361,39 @@ def maybe_create_fastmcp() -> Any | None:
             },
         )
 
+    @app.tool(description=descriptions["export_postvs"])
+    def export_postvs(eid: int, dest: str, first_instance: int = 0, instance_count: int = 1,
+                      view: int = 0, max_bytes: int = 536870912, window_id: str | None = None) -> Any:
+        return live.require("export_postvs", {"eid": eid, "dest": dest, "first_instance": first_instance,
+            "instance_count": instance_count, "view": view, "max_bytes": max_bytes, "window_id": window_id})
+
+    @app.tool(description=descriptions["export_capture_inventory"])
+    def export_capture_inventory(
+        dest: str,
+        mode: str = "resources",
+        after_eid: int = 0,
+        limit: int = 64,
+        overwrite: bool = False,
+        window_id: str | None = None,
+    ) -> Any:
+        return live.require("export_capture_inventory", {
+            "dest": dest, "mode": mode, "after_eid": after_eid,
+            "limit": limit, "overwrite": overwrite, "window_id": window_id,
+        })
+
+    @app.tool(description=descriptions["export_pixel_history"])
+    def export_pixel_history(rid: str, x: int, y: int, dest: str, eid_min: int = 0,
+                             eid_max: int = 0xffffffff, overwrite: bool = False,
+                             window_id: str | None = None) -> Any:
+        return live.require("export_pixel_history", {"rid": rid, "x": x, "y": y, "dest": dest,
+            "eid_min": eid_min, "eid_max": eid_max, "overwrite": overwrite, "window_id": window_id})
+
+    @app.tool(description=descriptions["export_shader_debug_trace"])
+    def export_shader_debug_trace(eid: int, x: int, y: int, dest: str, max_steps: int = 100000,
+                                  overwrite: bool = False, window_id: str | None = None) -> Any:
+        return live.require("export_shader_debug_trace", {"eid": eid, "x": x, "y": y, "dest": dest,
+            "max_steps": max_steps, "overwrite": overwrite, "window_id": window_id})
+
     @app.tool(description=descriptions["get_frame_packet"])
     def get_frame_packet(
         limit: int = 20,
@@ -1141,10 +1470,9 @@ def run_local_json(method: str, params: dict[str, Any]) -> int:
             elif method in offline.handlers:
                 result = offline.invoke(method, params)
             else:
-                result = _error_envelope(
-                    "live_bridge_unavailable",
-                    "Live qrenderdoc bridge is not available",
-                    cap="active",
+                result = _live_bridge_unavailable(
+                    getattr(live, "client", LiveBridgeClient()),
+                    window_id=window_id,
                 )
         elif method in offline.handlers:
             result = offline.invoke(method, params)
@@ -1152,6 +1480,11 @@ def run_local_json(method: str, params: dict[str, Any]) -> int:
             result = _error_envelope("unknown_tool", f"Unknown tool: {method}")
     except ValueError as exc:
         result = _error_envelope("bad_request", str(exc))
+    except LiveBridgeError as exc:
+        result = _live_bridge_unavailable(
+            getattr(live, "client", LiveBridgeClient()),
+            msg=str(exc),
+        )
     except Exception as exc:
         result = _error_envelope("request_failed", str(exc))
     print(json.dumps(result, ensure_ascii=False, indent=2))
