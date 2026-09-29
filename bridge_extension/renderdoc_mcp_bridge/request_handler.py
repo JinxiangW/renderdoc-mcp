@@ -1,6 +1,7 @@
 """Request routing for the qrenderdoc bridge extension."""
 
 from .observe import CaptureStatusService, ObserveService
+from .domains.camera import ReplayCameraService
 
 
 class RequestHandler:
@@ -9,7 +10,14 @@ class RequestHandler:
     def __init__(self, ctx):
         capture_service = CaptureStatusService(ctx)
         observe_service = ObserveService(ctx)
+        camera_service = ReplayCameraService(ctx)
         self._handlers = {
+            "get_replay_camera_state": camera_service.get_replay_camera_state,
+            "configure_replay_camera": camera_service.configure_replay_camera,
+            "reset_replay_camera": camera_service.reset_replay_camera,
+            "configure_replay_camera_recipe": camera_service.configure_replay_camera_recipe,
+            "apply_replay_camera_recipe": camera_service.apply_replay_camera_recipe,
+
             "ping": lambda _params: {"status": "ok", "message": "pong"},
             "get_capture_status": capture_service.run,
             "open_capture": capture_service.open_capture,

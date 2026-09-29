@@ -144,6 +144,11 @@ class LiveToolRegistry:
         self.client = client or LiveBridgeClient()
         self.handlers: dict[str, ToolHandler] = {
             "list_live_windows": self._list_live_windows,
+            "get_replay_camera_state": self._get_replay_camera_state,
+            "configure_replay_camera": self._configure_replay_camera,
+            "reset_replay_camera": self._reset_replay_camera,
+            "configure_replay_camera_recipe": self._configure_replay_camera_recipe,
+            "apply_replay_camera_recipe": self._apply_replay_camera_recipe,
             "get_capture_status": self._get_capture_status,
             "open_capture": self._open_capture,
             "find_latest_capture": self._find_latest_capture,
@@ -195,6 +200,26 @@ class LiveToolRegistry:
         clean_params = dict(params)
         window_id = clean_params.pop("window_id", None) or clean_params.pop("bridge_id", None)
         return clean_params, window_id
+
+    def _get_replay_camera_state(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("get_replay_camera_state", clean_params, window_id=window_id)
+
+    def _configure_replay_camera(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("configure_replay_camera", clean_params, window_id=window_id)
+
+    def _reset_replay_camera(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("reset_replay_camera", clean_params, window_id=window_id)
+
+    def _configure_replay_camera_recipe(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("configure_replay_camera_recipe", clean_params, window_id=window_id)
+
+    def _apply_replay_camera_recipe(self, params: dict[str, Any]) -> Any:
+        clean_params, window_id = self._split_window_params(params)
+        return self.client.call("apply_replay_camera_recipe", clean_params, window_id=window_id)
 
     def _get_capture_status(self, params: dict[str, Any]) -> Any:
         clean_params, window_id = self._split_window_params(params)
@@ -464,6 +489,66 @@ def maybe_create_fastmcp() -> Any | None:
     # Keep tool wrappers explicit so FastMCP can preserve per-tool signatures and schemas.
     # `live.require()` and `description=` remove most of the duplication without hiding
     # arguments behind dynamic registration.
+
+    @app.tool(description=descriptions["get_replay_camera_state"])
+    def get_replay_camera_state(
+        include_fields: bool = False,
+        expected_capture: str | None = None,
+        window_id: str | None = None,
+    ) -> Any:
+        return live.require("get_replay_camera_state", {
+            "include_fields": include_fields, "expected_capture": expected_capture,
+            "window_id": window_id,
+        })
+
+    @app.tool(description=descriptions["configure_replay_camera"])
+    def configure_replay_camera(
+        view: list[float],
+        projection: list[float],
+        fields: list[dict[str, Any]],
+        eid: int | None = None,
+        output_rid: str | None = None,
+        flip_y: bool | None = None,
+        speed: float = 1.0,
+        forward: str = "-Z",
+        world_up: str = "+Y",
+        enabled: bool = True,
+        show: bool = True,
+        expected_capture: str | None = None,
+        window_id: str | None = None,
+    ) -> Any:
+        return live.require("configure_replay_camera", {
+            "view": view, "projection": projection, "fields": fields, "eid": eid,
+            "output_rid": output_rid, "flip_y": flip_y, "speed": speed, "forward": forward, "world_up": world_up,
+            "enabled": enabled, "show": show, "expected_capture": expected_capture,
+            "window_id": window_id,
+        })
+
+    @app.tool(description=descriptions["reset_replay_camera"])
+    def reset_replay_camera(
+        expected_capture: str | None = None, window_id: str | None = None,
+    ) -> Any:
+        return live.require("reset_replay_camera", {
+            "expected_capture": expected_capture, "window_id": window_id,
+        })
+
+    @app.tool(description=descriptions["configure_replay_camera_recipe"])
+    def configure_replay_camera_recipe(
+        recipe: dict[str, Any], run: bool = True, show: bool = True,
+        expected_capture: str | None = None, window_id: str | None = None,
+    ) -> Any:
+        return live.require("configure_replay_camera_recipe", {
+            "recipe": recipe, "run": run, "show": show,
+            "expected_capture": expected_capture, "window_id": window_id,
+        })
+
+    @app.tool(description=descriptions["apply_replay_camera_recipe"])
+    def apply_replay_camera_recipe(
+        expected_capture: str | None = None, window_id: str | None = None,
+    ) -> Any:
+        return live.require("apply_replay_camera_recipe", {
+            "expected_capture": expected_capture, "window_id": window_id,
+        })
 
     @app.tool(description=descriptions["list_live_windows"])
     def list_live_windows() -> Any:

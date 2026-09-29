@@ -2,6 +2,19 @@
 
 All tools below default to `mode=summary`.
 
+## RenderDuck replay camera
+
+Local D3D11 RenderDuck builds expose `get_replay_camera_state`,
+`configure_replay_camera`, `reset_replay_camera`, `configure_replay_camera_recipe`,
+and `apply_replay_camera_recipe`. The bridge calls the public TextureViewer API on
+the UI thread; the frontend owns replay, validation, progress and persistence.
+
+Use `expected_capture` and `window_id` to target the intended capture. Recipe JSON
+can include camera layouts, explicit pass bypasses and capture fingerprints;
+`world_up` and `forward` select navigation conventions. Poll `scanning`, `busy`
+and `pending_update`, inspect `last_error` and `scan_report`, and explicitly apply
+partial recipe results. See the [setup and recipe guide](../README.md#renderduck-free-camera).
+
 ## Live Window Targeting
 
 Live qrenderdoc tools accept an optional `window_id`.

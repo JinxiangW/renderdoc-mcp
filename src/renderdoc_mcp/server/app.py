@@ -63,6 +63,11 @@ OFFLINE_BOOTSTRAP_TOOLS: tuple[ToolSpec, ...] = (
 
 
 LIVE_BRIDGE_TOOLS: tuple[ToolSpec, ...] = (
+    ToolSpec("get_replay_camera_state", True, "Read RenderDuck free-camera capability, pose, completion/error status and optionally the visible field configuration."),
+    ToolSpec("configure_replay_camera", True, "Configure RenderDuck free camera through its public API and populate its visible panel. Matrices are 16 mathematical row-ordered values (column vectors). Fields specify semantic, shader ResourceId, stage VS/HS/DS/GS/PS/CS, slot, offset, first_event, last_event, row_major and row_vector. Poll get_replay_camera_state until busy/pending_update are false; last_error reports replay failures. Requires an updated local D3D11 RenderDuck frontend."),
+    ToolSpec("reset_replay_camera", True, "Disable the free camera and restore original replay while retaining visible field configuration. Poll state for completion."),
+    ToolSpec("configure_replay_camera_recipe", True, "Set a data-only JSON replay recipe and optionally run it. Version 2 declares camera matrix locators and explicit pass skip/colour_bypass rules with reasons and capture SHA256/size; the bundled frontend script expands actual shader/event bindings. Poll get_replay_camera_state while scanning/busy/pending_update. Inspect scan_report, scan_partial and scan_field_count; partial results require apply_replay_camera_recipe. No arbitrary Python execution."),
+    ToolSpec("apply_replay_camera_recipe", True, "Explicitly accept and apply the last completed camera recipe result, including a confirmed partial result. Inspect scan_report first. Poll get_replay_camera_state for replay completion."),
     ToolSpec("list_live_windows", True, "List active qrenderdoc bridge windows and their window_id values."),
     ToolSpec("get_capture_status", True, "Return current capture status from the live bridge."),
     ToolSpec("open_capture", True, "Load a capture by path into the live qrenderdoc session."),

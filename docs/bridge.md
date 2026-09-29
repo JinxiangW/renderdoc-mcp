@@ -30,6 +30,11 @@ so an already-running qrenderdoc does not break until it is restarted.
 ## Implemented Methods
 
 - `ping`
+- `get_replay_camera_state`
+- `configure_replay_camera`
+- `reset_replay_camera`
+- `configure_replay_camera_recipe`
+- `apply_replay_camera_recipe`
 - `get_capture_status`
 - `list_live_windows`
 - `open_capture`
@@ -39,6 +44,12 @@ so an already-running qrenderdoc does not break until it is restarted.
 - `find_events`
 
 ## Live Window Selection
+
+For RenderDuck, install into its separate extension directory with
+`python scripts/install_ext.py --frontend renderduck --incremental --skip-decompiler`.
+Restart the frontend and reconnect MCP after an update. Camera methods require an
+updated local D3D11 frontend; unsupported builds return an explicit error. Details
+and recipe/profile links are in [README.md](../README.md#renderduck-free-camera).
 
 - call `list_live_windows` to enumerate active qrenderdoc windows
 - pass `window_id` to live tools when more than one window is present

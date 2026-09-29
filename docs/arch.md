@@ -19,6 +19,14 @@ It matches the intended workflow:
 
 ## Layers
 
+RenderDuck replay-camera requests follow the same transport and window routing.
+`ReplayCameraService` dispatches to the UI thread and invokes the public
+TextureViewer JSON API. Native code schedules replay work and runs its bundled
+recipe scanner; MCP does not execute arbitrary Python or synthesize input. State
+queries expose completion/error status, while the frontend validates capture
+fingerprints and saves successful configurations. The five camera endpoints and
+their usage are listed in [tools.md](tools.md#renderduck-replay-camera).
+
 ### 1. MCP Server
 
 Responsibility:

@@ -1,5 +1,21 @@
 """RenderDoc MCP bridge extension."""
 
+# RenderDuck uses renamed embedded Python modules but the same replay API.
+import sys
+try:
+    import renderdoc
+except ImportError:
+    import riderduck as renderdoc
+    sys.modules["renderdoc"] = renderdoc
+try:
+    import qrenderdoc
+except ImportError:
+    try:
+        import qriderduck as qrenderdoc
+        sys.modules["qrenderdoc"] = qrenderdoc
+    except ImportError:
+        pass  # Domain unit tests and replay-only Python do not provide a UI module.
+
 from .request_handler import RequestHandler
 from .server import BridgeServer
 

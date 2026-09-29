@@ -2,6 +2,7 @@
 
 import os
 import time
+import threading
 
 import renderdoc as rd
 
@@ -9,6 +10,27 @@ from .base import BridgeService
 
 
 class CaptureStatusService(BridgeService):
+    def _invoke_on_ui_thread(self, callback, timeout):
+        # LoadCapture/CloseCapture manage Qt widgets and must not run on the
+        # fallback Python bridge worker when PySide2 is unavailable.
+        completed = threading.Event()
+        outcome = {}
+
+        def invoke():
+            try:
+                outcome["value"] = callback()
+            except Exception as exc:
+                outcome["error"] = exc
+            finally:
+                completed.set()
+
+        self.ctx.Extensions().GetMiniQtHelper().InvokeOntoUIThread(invoke)
+        if not completed.wait(timeout):
+            raise RuntimeError("Timed out waiting for capture lifecycle on the UI thread")
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome.get("value")
+
     def run(self, params):
         params = params or {}
         directory = params.get("directory") or params.get("root")
